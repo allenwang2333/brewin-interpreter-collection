@@ -7,14 +7,18 @@ class Interpreter(InterpreterBase):
     def __init__(self, console_output=True, inp=None, trace_output=False):
         super().__init__(console_output, inp)   # call InterpreterBase’s constructor
         self.all_classes = {} # dict: {key=class_name, value = class description}
+        self.operations = {}
+        self.operators = {'+', '-', '*', '/'}
+        
 
     def run(self, program_source):
         # first parse the program
+        
         result, parsed_program = BParser.parse(program_source)
         if result == False:
             self.error(ErrorType.SYNTAX_ERROR, "invalid input")
         print(parsed_program) # ! delete this before submission
-
+        self.__init_operations()
         self.__discover_all_classes_and_track_them(parsed_program)
         class_def = self.__find_definition_for_class(self.MAIN_CLASS_DEF)
         obj = class_def.instantiate_object() 
@@ -35,6 +39,15 @@ class Interpreter(InterpreterBase):
             return self.all_classes[class_name]
         else:
             self.error(ErrorType.NAME_ERROR, f"class {class_name} can't be found")
+
+    def __init_operations(self):
+        # inspired by laster year Carey's solution
+        self.operations[Type.INT] = {
+        '+': lambda a,b: Value(a.val()+b.val(), Type.INT),
+        '-': lambda a,b: Value(a.val()-b.val(), Type.INT),
+        '*': lambda a,b: Value(a.val()*b.val(), Type.INT)
+        }
+
 
 class ClassManager:
     """Keep Track of class location"""
@@ -131,7 +144,7 @@ class ObjectDefinition:
         out_stmt = statement[1:]
         for i in range(len(out_stmt)):
             if out_stmt[i] in self.obj_variables:
-                out_str += str(self.obj_variables[out_stmt[i]].value_of())
+                out_str += str(self.obj_variables[out_stmt[i]].val())
             else:
                 out_str += out_stmt[i]
             if i != len(out_stmt) - 1:
@@ -145,7 +158,11 @@ class ObjectDefinition:
         return 0
 
     def __execute_set_statement(self, statement):
-        self.obj_variables[statement[1]] = Value(statement[2])
+        if isinstance(statement[2], list):
+            result = self.__evaluate_expression(statement[2])
+            self.obj_variables[statement[1]] = result
+        else:
+            self.obj_variables[statement[1]] = Value(statement[2])
         return 0
 
     def __execute_call_statement(self, statement):
@@ -165,6 +182,27 @@ class ObjectDefinition:
         for i in statements:
             self.__run_statement(i)
         return 0
+    
+    def __evaluate_expression(self, statement):
+        stack = []
+        if isinstance(statement, list):
+            for i in statement:
+                if isinstance(i, list):
+                    stack.append(self.__evaluate_expression(i))
+                elif i in self.interpreter.operators:
+                    stack.append(i)
+                else:
+                    stack.append(Value(i))
+            if len(stack) == 3:
+                b = stack.pop()
+                a = stack.pop()
+                operator = stack.pop()
+                if operator not in self.interpreter.operators:
+                    self.interpreter.error(ErrorType.SYNTAX_ERROR, "invalid operator")
+                if a.typeof() != b.typeof():
+                    self.interpreter.error(ErrorType.TYPE_ERROR, "type does not match")
+                return self.interpreter.operations[a.typeof()][operator](a, b)
+
 
 def is_a_print_statement(statement):
     return statement[0] == 'print'
@@ -214,27 +252,34 @@ class Type(Enum):
 
 class Value:
     "value class"
-    def __init__(self, value):
-        self.type = None
-        self.value = None
+    def __init__(self, value, type=None):
         value = str(value)
-        if value.isnumeric():
-            self.type = Type.INT
-            self.value = int(value)
-        elif value == 'true' or value == 'false':
-            self.type = Type.BOOL
-            self.value = value
-        elif value == 'null':
-            self.type = Type.POINTER
-            self.value = Type.NULL_POINTER
+        if type == None:
+            if value.isnumeric():
+                self.type = Type.INT
+                self.value = int(value)
+            elif value == 'true' or value == 'false':
+                self.type = Type.BOOL
+                self.value = value
+            elif value == 'null':
+                self.type = Type.POINTER
+                self.value = Type.NULL_POINTER
+            else:
+                self.type = Type.STRING
+                self.value = value.strip('"')
         else:
-            self.type = Type.STRING
-            self.value = value.strip('"')
+            if type == Type.INT:
+                self.type = Type.INT
+                self.value = int(value)
+            if type == Type.BOOL:
+                self.type = Type.BOOL
+                self.value = value
 
-    def type_of(self):
+
+    def typeof(self):
         return self.type
 
-    def value_of(self):
+    def val(self):
         return self.value
 
 def main():
@@ -243,11 +288,7 @@ def main():
  (field x "abc")
  (method main ()
   (begin
-   (set x "def")
-   (print x)
-   (set x 20)
-   (print x)
-   (set x true)
+   (set x (+ 3 (* 6 4)))
    (print x)
   )
  )
