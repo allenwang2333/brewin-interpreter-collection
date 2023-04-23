@@ -8,12 +8,11 @@ class Interpreter(InterpreterBase):
         super().__init__(console_output, inp)   # call InterpreterBase’s constructor
         self.all_classes = {} # dict: {key=class_name, value = class description}
         self.operations = {}
-        self.operators = {'+', '-', '*', '/'}
+        self.operators = {'+', '-', '*', '/', '%', '==', '>=', '<=', '!=', '>', '<', '&', '|'}
         
 
     def run(self, program_source):
         # first parse the program
-        
         result, parsed_program = BParser.parse(program_source)
         if result == False:
             self.error(ErrorType.SYNTAX_ERROR, "invalid input")
@@ -45,7 +44,22 @@ class Interpreter(InterpreterBase):
         self.operations[Type.INT] = {
         '+': lambda a,b: Value(a.val()+b.val(), Type.INT),
         '-': lambda a,b: Value(a.val()-b.val(), Type.INT),
-        '*': lambda a,b: Value(a.val()*b.val(), Type.INT)
+        '*': lambda a,b: Value(a.val()*b.val(), Type.INT),
+        '/': lambda a,b: Value(a.val()/b.val(), Type.INT),
+        '%': lambda a,b: Value(a.val()%b.val(), Type.INT),
+        '==': lambda a,b: Value(a.val()==b.val(), Type.BOOL),
+        '>=': lambda a,b: Value(a.val()>=b.val(), Type.BOOL),
+        '<=': lambda a,b: Value(a.val()<=b.val(), Type.BOOL),
+        '>': lambda a,b: Value(a.val()>b.val(), Type.BOOL),
+        '<': lambda a,b: Value(a.val()<b.val(), Type.BOOL),
+        '!=': lambda a,b: Value(a.val()!=b.val(), Type.BOOL),
+        }
+        self.operations[Type.BOOL] = {
+        '!=': lambda a,b: Value(a.val()!=b.val(), Type.BOOL),
+        '==': lambda a,b: Value(a.val()==b.val(), Type.BOOL),
+        '&': lambda a,b: Value(a.val()&b.val(), Type.BOOL),
+        '|': lambda a,b: Value(a.val()|b.val(), Type.BOOL),
+        '!': lambda a: Value(not a.val(), Type.BOOL)
         }
 
 
@@ -143,21 +157,39 @@ class ObjectDefinition:
         out_str = ""
         out_stmt = statement[1:]
         for i in range(len(out_stmt)):
-            if out_stmt[i] in self.obj_variables:
-                out_str += str(self.obj_variables[out_stmt[i]].val())
+            if isinstance(out_stmt[i], list):
+                out_str += self.__format_string(self.__evaluate_expression(out_stmt[i]))
+            elif out_stmt[i] in self.obj_variables:
+                out_str += self.__format_string(self.obj_variables[out_stmt[i]])
+            elif out_stmt[i][0] == '"' and out_stmt[i][-1] == '"':
+                out_str += out_stmt[i].strip('"')
             else:
-                out_str += out_stmt[i]
+                self.interpreter.error(ErrorType.NAME_ERROR, "undefined variable", statement[0].line_num)
             if i != len(out_stmt) - 1:
                 out_str += ' '
         self.interpreter.output(out_str) 
         return 0
-        # ! need to base on interpreter base class
+    
+    def __format_string(self, string):
+        if string.typeof() == Type.BOOL:
+            if string.val():
+                return 'true'
+            else:
+                return 'false'
+        elif string.typeof() == Type.STRING:
+            return string.val().strip('"')
+        else:
+            return str(string.val())
 
     def __execute_input_statement(self, statement):
+        if statement[1] not in self.obj_variables:
+            self.interpreter.error(ErrorType.NAME_ERROR, "undefined variable", statement[0].line_num)
         self.obj_variables[statement[1]] = Value(self.interpreter.get_input())
         return 0
 
     def __execute_set_statement(self, statement):
+        if statement[1] not in self.obj_variables:
+            self.interpreter.error(ErrorType.NAME_ERROR, "undefined variable", statement[0].line_num)
         if isinstance(statement[2], list):
             result = self.__evaluate_expression(statement[2])
             self.obj_variables[statement[1]] = result
@@ -172,7 +204,21 @@ class ObjectDefinition:
         pass
 
     def __execute_if_statement(self, statement):
-        pass
+        #print(statement)
+        if isinstance(statement[1], list):
+            eval_res = self.__evaluate_expression(statement[1])
+            if (eval_res.val()):
+                self.__run_statement(statement[2])
+            elif len(statement) > 3:
+                self.__run_statement(statement[3])
+        elif statement[1] == 'true' or statement[1] == 'false':
+            if statement[1] == 'true':
+                self.__run_statement(statement[2])
+            elif len(statement) > 3:
+                self.__run_statement(statement[3])
+        else:
+            self.interpreter.error(ErrorType.TYPE_ERROR, "not boolean in if statement", statement[0].line_num)
+
     
     def __execute_return_statement(self, statement):
         pass
@@ -191,17 +237,34 @@ class ObjectDefinition:
                     stack.append(self.__evaluate_expression(i))
                 elif i in self.interpreter.operators:
                     stack.append(i)
+                elif i in self.obj_variables:
+                    stack.append(self.obj_variables[i])
+                    print(self.obj_variables[i].val())
                 else:
-                    stack.append(Value(i))
+                    new_var = Value(i)
+                    if new_var.typeof() == Type.UNDEFINED:
+                        self.interpreter.error(ErrorType.NAME_ERROR, "undefined variable", statement[0].line_num)
+                    else:
+                        stack.append(new_var)
             if len(stack) == 3:
                 b = stack.pop()
                 a = stack.pop()
                 operator = stack.pop()
                 if operator not in self.interpreter.operators:
-                    self.interpreter.error(ErrorType.SYNTAX_ERROR, "invalid operator")
+                    self.interpreter.error(ErrorType.SYNTAX_ERROR, "invalid operator", statement[0].line_num)
                 if a.typeof() != b.typeof():
-                    self.interpreter.error(ErrorType.TYPE_ERROR, "type does not match")
+                    self.interpreter.error(ErrorType.TYPE_ERROR, "type does not match", statement[0].line_num)
                 return self.interpreter.operations[a.typeof()][operator](a, b)
+            elif len(stack) == 2:
+                a = stack.pop()
+                operator = stack.pop()
+                if operator != '!':
+                    self.interpreter.error(ErrorType.TYPE_ERROR, "wrong operator", statement[0].line_num)
+                if a.typeof() != Type.BOOL:
+                    self.interpreter.error(ErrorType.TYPE_ERROR, "non boolean", statement[0].line_num)
+                return self.interpreter.operations[a.typeof()][operator](a)
+        else:
+            self.interpreter.error(ErrorType.TYPE_ERROR, "not an expression", statement[0].line_num)
 
 
 def is_a_print_statement(statement):
@@ -220,19 +283,13 @@ def is_a_while_statement(statement):
     pass
 
 def is_an_if_statement(statement):
-    pass
+    return statement[0] == 'if'
 
 def is_a_return_statement(statement):
     pass
 
 def is_a_begin_statement(statement):
     return statement[0] == 'begin'
-
-class Field:
-    def __init__(self, name, value):
-        self.name = name
-        self.value = value
-        
 
 class Method:
     def __init__(self, name, parameters, statements):
@@ -248,25 +305,31 @@ class Type(Enum):
     INT = 2
     STRING = 3
     POINTER = 4
-    NULL_POINTER = -1
+    NULL_POINTER = 5
+    UNDEFINED = -1
 
 class Value:
     "value class"
     def __init__(self, value, type=None):
-        value = str(value)
         if type == None:
-            if value.isnumeric():
+            if value.isnumeric() or (value[0] == '-' and value[1:].isnumeric()):
                 self.type = Type.INT
                 self.value = int(value)
             elif value == 'true' or value == 'false':
                 self.type = Type.BOOL
-                self.value = value
+                if value == 'true':
+                    self.value = True
+                else:
+                    self.value = False
             elif value == 'null':
                 self.type = Type.POINTER
                 self.value = Type.NULL_POINTER
-            else:
+            elif value[0] == '"' and value[-1] == '"':
                 self.type = Type.STRING
-                self.value = value.strip('"')
+                self.value = value
+            else:
+                self.type = Type.UNDEFINED
+                self.value = -1
         else:
             if type == Type.INT:
                 self.type = Type.INT
@@ -274,8 +337,6 @@ class Value:
             if type == Type.BOOL:
                 self.type = Type.BOOL
                 self.value = value
-
-
     def typeof(self):
         return self.type
 
@@ -283,51 +344,31 @@ class Value:
         return self.value
 
 def main():
-    source_code = """
+    test_1 = """
     (class main
- (field x "abc")
+ (field x 0)
+ (field y "test")
  (method main ()
   (begin
-   (set x (+ 3 (* 6 4)))
+   (inputi x)
    (print x)
+   (inputi y)
+   (print y)
   )
  )
 )
-
     """.split('\n')
-    
-    test_source_code = """
-    (class person
-         (field name "")
-         (field age 0)
-         (method init (n a)
-            (begin
-              (set name n)
-              (set age a)
-            )
-         )
-         (method talk (to_whom)
-            (print name " says hello to " to_whom)
-         )
-      )
-
-(class main
- (field p null)
- (method tell_joke (to_whom)
-    (print "Hey " to_whom ", knock knock!")
- )
+    test_2 = """
+    (class main
  (method main ()
-   (begin
-      (call me tell_joke "Matt") # call tell_joke in current object
-      (set p (new person))  # allocate a new person obj, point p at it
-      (call p init "Siddarth" 25) # call init in object pointed to by p
-      (call p talk "Paul")       # call talk in object pointed to by p
-   )
+  (begin
+		(print (+ 100 "abc"))
+  )
  )
 )
 """.split('\n')
     interpreter = Interpreter()
-    interpreter.run(source_code)
+    interpreter.run(test_1)
 
 if __name__ == '__main__':
     main()
