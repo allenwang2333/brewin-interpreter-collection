@@ -8,7 +8,7 @@ class Interpreter(InterpreterBase):
         super().__init__(console_output, inp)   # call InterpreterBase’s constructor
         self.all_classes = {} # dict: {key=class_name, value = class description}
         self.operations = {}
-        self.operators = {'+', '-', '*', '/', '%', '==', '>=', '<=', '!=', '>', '<', '&', '|'}
+        self.operators = {'+', '-', '*', '/', '%', '==', '>=', '<=', '!=', '>', '<', '&', '|', '!'}
         
 
     def run(self, program_source):
@@ -61,6 +61,11 @@ class Interpreter(InterpreterBase):
         '|': lambda a,b: Value(a.val()|b.val(), Type.BOOL),
         '!': lambda a: Value(not a.val(), Type.BOOL)
         }
+        self.operations[Type.STRING] = {
+        '+': lambda a,b: Value(a.val()+b.val(), Type.STRING),
+        '==': lambda a,b: Value(a.val()==b.val(), Type.STRING),
+        '!=': lambda a,b: Value(a.val()!=b.val(), Type.STRING)
+        }
 
 
 class ClassManager:
@@ -112,6 +117,7 @@ class ObjectDefinition:
         self.obj_methods = {}
         self.interpreter = interpreter
         self.obj_variables = {}
+        self.method_variables = [] # stack frame
 
     def add_method(self, method):
         self.obj_methods[method[1]] = Method(method[1], method[2], method[3])
@@ -120,7 +126,8 @@ class ObjectDefinition:
         self.obj_variables[field[1]] = Value(field[2])
 
    # Interpret the specified method using the provided parameters    
-    def run_method(self, method_name, parameters=[]):
+    def run_method(self, method_name, parameters={}):
+        self.method_variables.append(parameters)
         method = self.__find_method(method_name)
         statement = method.get_top_level_statement()
         result = self.__run_statement(statement)
@@ -158,9 +165,14 @@ class ObjectDefinition:
         out_stmt = statement[1:]
         for i in range(len(out_stmt)):
             if isinstance(out_stmt[i], list):
-                out_str += self.__format_string(self.__evaluate_expression(out_stmt[i]))
+                if out_stmt[i][0] == 'call':
+                    out_str += self.__format_string(self.__execute_call_statement(out_stmt[i]))
+                else:   
+                    out_str += self.__format_string(self.__evaluate_expression(out_stmt[i]))
             elif out_stmt[i] in self.obj_variables:
                 out_str += self.__format_string(self.obj_variables[out_stmt[i]])
+            elif out_stmt[i] in self.method_variables[-1]:
+                out_str += self.__format_string(self.method_variables[-1][out_stmt[i]])
             elif out_stmt[i][0] == '"' and out_stmt[i][-1] == '"':
                 out_str += out_stmt[i].strip('"')
             else:
@@ -168,7 +180,6 @@ class ObjectDefinition:
             if i != len(out_stmt) - 1:
                 out_str += ' '
         self.interpreter.output(out_str) 
-        return 0
     
     def __format_string(self, string):
         if string.typeof() == Type.BOOL:
@@ -185,61 +196,107 @@ class ObjectDefinition:
         if statement[1] not in self.obj_variables:
             self.interpreter.error(ErrorType.NAME_ERROR, "undefined variable", statement[0].line_num)
         self.obj_variables[statement[1]] = Value(self.interpreter.get_input())
-        return 0
 
     def __execute_set_statement(self, statement):
         if statement[1] not in self.obj_variables:
             self.interpreter.error(ErrorType.NAME_ERROR, "undefined variable", statement[0].line_num)
         if isinstance(statement[2], list):
-            result = self.__evaluate_expression(statement[2])
+            if statement[2][0] == 'call':
+                result = self.__execute_call_statement(statement[2])
+            else:
+                result = self.__evaluate_expression(statement[2])
             self.obj_variables[statement[1]] = result
         else:
             self.obj_variables[statement[1]] = Value(statement[2])
-        return 0
 
     def __execute_call_statement(self, statement):
-        pass
+        if statement[1] == 'me':
+            local_variables = {}
+            method = self.__find_method(statement[2])
+            param_names = method.get_params()
+            #result = self.__run_statement(statement)
+            param_values = statement[3:]
+            evaluated_values = []
+            if len(param_values) != method.get_param_len():
+                self.interpreter.error(ErrorType.TYPE_ERROR, "parameters does not match", statement[0].line_num)
+            else:
+                for i in range(len(param_values)):
+                    if isinstance(param_values[i], list):
+                        local_variables[param_names[i]] = self.__evaluate_expression(param_values[i])
+                    else:
+                        local_variables[param_names[i]] = Value(param_values[i])
+                result = self.run_method(statement[2], local_variables)
+                # for i in range(len(values)):
+                #     del self.method_variables[method_params[i]]
+
+                self.method_variables.pop()
+            return result
+        else:
+            pass
 
     def __execute_while_statement(self, statement):
-        pass
+        if isinstance(statement[1], list):
+            while (self.__evaluate_expression(statement[1]).val()):
+                self.__run_statement(statement[2])
+        elif statement[1] == 'true' or statement[1] == 'false':
+            if statement[1] == 'true':
+                while(True):
+                    self.__run_statement(statement[2])
+        else:
+            self.interpreter.error(ErrorType.TYPE_ERROR, "not boolean in while statement", statement[0].line_num)
 
     def __execute_if_statement(self, statement):
         #print(statement)
         if isinstance(statement[1], list):
             eval_res = self.__evaluate_expression(statement[1])
             if (eval_res.val()):
-                self.__run_statement(statement[2])
+                return self.__run_statement(statement[2])
             elif len(statement) > 3:
-                self.__run_statement(statement[3])
+                return self.__run_statement(statement[3])
         elif statement[1] == 'true' or statement[1] == 'false':
             if statement[1] == 'true':
-                self.__run_statement(statement[2])
+                return self.__run_statement(statement[2])
             elif len(statement) > 3:
-                self.__run_statement(statement[3])
+                return self.__run_statement(statement[3])
         else:
             self.interpreter.error(ErrorType.TYPE_ERROR, "not boolean in if statement", statement[0].line_num)
 
     
     def __execute_return_statement(self, statement):
-        pass
+        if len(statement) == 1:
+            return None
+        if isinstance(statement[1], list):
+            if statement[1][0] == 'call':
+                result = self.__execute_call_statement(statement[1])
+            else:
+                result = self.__evaluate_expression(statement[1])
+        else:
+            result = Value(statement[1])
+        return result
 
     def __execute_all_sub_statements_of_begin_statement(self, statement):
         statements = statement[1:]
         for i in statements:
+            if is_a_return_statement(i):
+                return self.__run_statement(i) 
             self.__run_statement(i)
-        return 0
+        
     
     def __evaluate_expression(self, statement):
         stack = []
         if isinstance(statement, list):
             for i in statement:
                 if isinstance(i, list):
-                    stack.append(self.__evaluate_expression(i))
+                    if i[0] == 'call':
+                        stack.append(self.__execute_call_statement(i))
+                    else:
+                        stack.append(self.__evaluate_expression(i))
                 elif i in self.interpreter.operators:
                     stack.append(i)
                 elif i in self.obj_variables:
                     stack.append(self.obj_variables[i])
-                    print(self.obj_variables[i].val())
+                elif i in self.method_variables[-1]:
+                    stack.append(self.method_variables[-1][i])
                 else:
                     new_var = Value(i)
                     if new_var.typeof() == Type.UNDEFINED:
@@ -277,16 +334,16 @@ def is_a_set_statement(statement):
     return statement[0] == 'set'
 
 def is_a_call_statement(statement):
-    pass
+    return statement[0] == 'call'
 
 def is_a_while_statement(statement):
-    pass
+    return statement[0] == 'while'
 
 def is_an_if_statement(statement):
     return statement[0] == 'if'
 
 def is_a_return_statement(statement):
-    pass
+    return statement[0] == 'return'
 
 def is_a_begin_statement(statement):
     return statement[0] == 'begin'
@@ -299,6 +356,12 @@ class Method:
 
     def get_top_level_statement(self):
         return self.statements
+    
+    def get_param_len(self):
+        return len(self.parameters)
+
+    def get_params(self):
+        return self.parameters
 
 class Type(Enum):
     BOOL = 1
@@ -323,7 +386,7 @@ class Value:
                     self.value = False
             elif value == 'null':
                 self.type = Type.POINTER
-                self.value = Type.NULL_POINTER
+                self.value = None
             elif value[0] == '"' and value[-1] == '"':
                 self.type = Type.STRING
                 self.value = value
@@ -346,27 +409,13 @@ class Value:
 def main():
     test_1 = """
     (class main
- (field x 0)
- (field y "test")
+ (field x true)
+ (field y false)
  (method main ()
-  (begin
-   (inputi x)
-   (print x)
-   (inputi y)
-   (print y)
-  )
+  (print (! x))
  )
 )
     """.split('\n')
-    test_2 = """
-    (class main
- (method main ()
-  (begin
-		(print (+ 100 "abc"))
-  )
- )
-)
-""".split('\n')
     interpreter = Interpreter()
     interpreter.run(test_1)
 
