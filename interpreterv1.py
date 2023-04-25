@@ -2,11 +2,12 @@ from intbase import InterpreterBase, ErrorType
 from bparser import BParser
 from enum import Enum
 
+
 class Interpreter(InterpreterBase):
     """Interpreter Class"""
     def __init__(self, console_output=True, inp=None, trace_output=False):
         super().__init__(console_output, inp)   # call InterpreterBase’s constructor
-        self.all_classes = {} # dict: {key=class_name, value = class description}
+        self.all_classes = {}  # dict: {key=class_name, value = class description}
         self.operations = {}
         self.operators = {'+', '-', '*', '/', '%', '==', '>=', '<=', '!=', '>', '<', '&', '|', '!'}
         
@@ -40,39 +41,39 @@ class Interpreter(InterpreterBase):
             self.error(ErrorType.NAME_ERROR, f"class {class_name} can't be found")
 
     def __init_operations(self):
-        # inspired by laster year Carey's solution
+        # inspired by last year Carey's solution
         self.operations[Type.INT] = {
-        '+': lambda a,b: Value(a.val()+b.val(), Type.INT),
-        '-': lambda a,b: Value(a.val()-b.val(), Type.INT),
-        '*': lambda a,b: Value(a.val()*b.val(), Type.INT),
-        '/': lambda a,b: Value(a.val()/b.val(), Type.INT),
-        '%': lambda a,b: Value(a.val()%b.val(), Type.INT),
-        '==': lambda a,b: Value(a.val()==b.val(), Type.BOOL),
-        '>=': lambda a,b: Value(a.val()>=b.val(), Type.BOOL),
-        '<=': lambda a,b: Value(a.val()<=b.val(), Type.BOOL),
-        '>': lambda a,b: Value(a.val()>b.val(), Type.BOOL),
-        '<': lambda a,b: Value(a.val()<b.val(), Type.BOOL),
-        '!=': lambda a,b: Value(a.val()!=b.val(), Type.BOOL),
+            '+': lambda a,b: Value(a.val()+b.val(), Type.INT),
+            '-': lambda a,b: Value(a.val()-b.val(), Type.INT),
+            '*': lambda a,b: Value(a.val()*b.val(), Type.INT),
+            '/': lambda a,b: Value(a.val()/b.val(), Type.INT),
+            '%': lambda a,b: Value(a.val()%b.val(), Type.INT),
+            '==': lambda a,b: Value(a.val()==b.val(), Type.BOOL),
+            '>=': lambda a,b: Value(a.val()>=b.val(), Type.BOOL),
+            '<=': lambda a,b: Value(a.val()<=b.val(), Type.BOOL),
+            '>': lambda a,b: Value(a.val()>b.val(), Type.BOOL),
+            '<': lambda a,b: Value(a.val()<b.val(), Type.BOOL),
+            '!=': lambda a,b: Value(a.val()!=b.val(), Type.BOOL),
         }
         self.operations[Type.BOOL] = {
-        '!=': lambda a,b: Value(a.val()!=b.val(), Type.BOOL),
-        '==': lambda a,b: Value(a.val()==b.val(), Type.BOOL),
-        '&': lambda a,b: Value(a.val()&b.val(), Type.BOOL),
-        '|': lambda a,b: Value(a.val()|b.val(), Type.BOOL),
-        '!': lambda a: Value(not a.val(), Type.BOOL)
+            '!=': lambda a,b: Value(a.val()!=b.val(), Type.BOOL),
+            '==': lambda a,b: Value(a.val()==b.val(), Type.BOOL),
+            '&': lambda a,b: Value(a.val()&b.val(), Type.BOOL),
+            '|': lambda a,b: Value(a.val()|b.val(), Type.BOOL),
+            '!': lambda a: Value(not a.val(), Type.BOOL)
         }
         self.operations[Type.STRING] = {
-        '+': lambda a,b: Value(a.val()+b.val(), Type.STRING),
-        '==': lambda a,b: Value(a.val()==b.val(), Type.BOOL),
-        '!=': lambda a,b: Value(a.val()!=b.val(), Type.BOOL),
-        '>=': lambda a,b: Value(a.val()>=b.val(), Type.BOOL),
-        '<=': lambda a,b: Value(a.val()<=b.val(), Type.BOOL),
-        '>': lambda a,b: Value(a.val()>b.val(), Type.BOOL),
-        '<': lambda a,b: Value(a.val()<b.val(), Type.BOOL),
+            '+': lambda a,b: Value(a.val()+b.val(), Type.STRING),
+            '==': lambda a,b: Value(a.val()==b.val(), Type.BOOL),
+            '!=': lambda a,b: Value(a.val()!=b.val(), Type.BOOL),
+            '>=': lambda a,b: Value(a.val()>=b.val(), Type.BOOL),
+            '<=': lambda a,b: Value(a.val()<=b.val(), Type.BOOL),
+            '>': lambda a,b: Value(a.val()>b.val(), Type.BOOL),
+            '<': lambda a,b: Value(a.val()<b.val(), Type.BOOL),
         }
         self.operations[Type.POINTER] = {
-        '==': lambda a,b: Value(a.val() is b.val(), Type.BOOL),
-        '!=': lambda a,b: Value(a.val() is not b.val(), Type.BOOL) 
+            '==': lambda a,b: Value(a.val() is b.val(), Type.BOOL),
+            '!=': lambda a,b: Value(a.val() is not b.val(), Type.BOOL)
         }
 
 
@@ -182,10 +183,11 @@ class ObjectDefinition:
                     out_str += self.__format_string(self.__execute_call_statement(out_stmt[i]))
                 else:   
                     out_str += self.__format_string(self.__evaluate_expression(out_stmt[i]))
-            elif out_stmt[i] in self.obj_variables:
-                out_str += self.__format_string(self.obj_variables[out_stmt[i]])
             elif out_stmt[i] in self.method_variables[-1]:
                 out_str += self.__format_string(self.method_variables[-1][out_stmt[i]])
+            elif out_stmt[i] in self.obj_variables:
+                out_str += self.__format_string(self.obj_variables[out_stmt[i]])
+
             # elif out_stmt[i][0] == '"' and out_stmt[i][-1] == '"':
             #     out_str += out_stmt[i].strip('"')
             # elif out_stmt[i][0] == '"' and out_stmt[i][-1] == '"':
@@ -204,6 +206,8 @@ class ObjectDefinition:
                 return 'false'
         elif string.typeof() == Type.STRING:
             return string.val().strip('"')
+        elif string.typeof() == Type.RETURN:
+            return 'None'
         else:
             return str(string.val())
 
@@ -257,6 +261,10 @@ class ObjectDefinition:
                 for i in range(len(param_values)):
                     if isinstance(param_values[i], list):
                         local_variables[param_names[i]] = self.__evaluate_expression(param_values[i])
+                    elif param_values[i] in self.method_variables[-1]:
+                        local_variables[param_names[i]] = self.method_variables[-1][param_values[i]]
+                    elif param_values[i] in self.obj_variables:
+                        local_variables[param_names[i]] = self.obj_variables[param_values[i]]
                     else:
                         local_variables[param_names[i]] = Value(param_values[i])
                 result = self.run_method(statement[2], local_variables)
@@ -276,6 +284,10 @@ class ObjectDefinition:
                 for i in range(len(param_values)):
                     if isinstance(param_values[i], list):
                         local_variables[param_names[i]] = self.__evaluate_expression(param_values[i])
+                    elif param_values[i] in self.method_variables[-1]:
+                        local_variables[param_names[i]] = self.method_variables[-1][param_values[i]]
+                    elif param_values[i] in self.obj_variables:
+                        local_variables[param_names[i]] = self.obj_variables[param_values[i]]
                     else:
                         local_variables[param_names[i]] = Value(param_values[i])
                 result = obj.run_method(statement[2], local_variables)
@@ -350,13 +362,16 @@ class ObjectDefinition:
         result = None
         for i in statements:
             result = self.__run_statement(i)
-            if isinstance(result, Value):
+            # ! some problem here
+            if not is_a_call_statement(i) and isinstance(result, Value):
                 return result
         return result
     
     def __evaluate_expression(self, statement):
         stack = []
         if isinstance(statement, list):
+            if statement[0] == 'call':
+                return self.__execute_call_statement(statement)
             for i in statement:
                 if isinstance(i, list):
                     if i[0] == 'call':
@@ -408,7 +423,7 @@ class ObjectDefinition:
                         obj = class_def.instantiate_object() 
                         return Value(obj, Type.POINTER)
                 else:
-                     self.interpreter.error(ErrorType.TYPE_ERROR, "operator error", statement[0].line_num)
+                    self.interpreter.error(ErrorType.TYPE_ERROR, "operator error", statement[0].line_num)
                 return self.interpreter.operations[a.typeof()][operator](a)
             
         else:
@@ -500,6 +515,9 @@ class Value:
             if type == Type.POINTER:
                 self.type = Type.POINTER
                 self.value = value
+            if type == Type.RETURN:
+                self.type = Type.RETURN
+                self.value = value
     def typeof(self):
         return self.type
 
@@ -551,10 +569,13 @@ def main():
    (begin
       (call me tell_joke "Leia")  # calling method in the current obj
       (set p (new person))    
-      (call p init "Siddarth" 25)  # calling method in other object
+      (call p init "Siddarth" (call me set_age))  # calling method in other object
       (call p talk "Boyan")        # calling method in other object
       (print "Siddarth's age is " (call p get_age))
    )
+ )
+ (method set_age ()
+    (return 90)
  )
 )
 
@@ -563,19 +584,67 @@ def main():
 
     test_3 = """
 (class main
-        (field x 0)
-        (method main () 
-          (begin
-           (inputi x)	 
-           (while (> x 0) 
-             (begin
-               (print "x is " x)
-               (set x (- x 1))
-             ) 
-           )          
-          )
+  (field x 10)
+  (field y 20)
+  (method main ()
+    (begin
+      (call me set_fields x)
+      (print x)
+    )
+  )
+  (method set_fields (param)
+    (set param 11)
   )
 )
+
+    """.split('\n')
+
+    test_4 = """
+	(class main
+  (field x 0)
+  (field y 0)
+  (method main ()
+    (begin
+      (set x 11)
+      (set y 20)
+      (call me check_sum x y)
+      (call me check_product x y)
+      (call me check_multiple x)
+    )
+  )
+  (method check_sum (a b)
+    (begin
+      (if (== 0 (% (+ a b) 2))
+        (print "Sum of x and y is even")
+        (print "Sum of x and y is odd")
+      )
+    )
+  )
+  (method check_product (a b)
+    (begin
+      (if (& (== 0 (% a 2)) (== 0 (% b 2)))
+        (print "Both x and y are even")
+        (print "At least one of x and y is odd")
+      )
+    )
+  )
+  (method check_multiple (a)
+    (begin
+      (if (== 0 (% a 3))
+        (print "x is a multiple of 3")
+        (print "x is not a multiple of 3")
+      )
+      (if (== 0 (% a 5))
+        (print "x is a multiple of 5")
+        (print "x is not a multiple of 5")
+      )
+      (if (& (== 0 (% a 3)) (== 0 (% a 5)))
+        (print "x is a multiple of both 3 and 5")
+      )
+    )
+  )
+)
+
 
     """.split('\n')
     interpreter = Interpreter()

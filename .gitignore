@@ -133,3 +133,5 @@ dmypy.json
 
 # bak file
 *.bak1
+.idea/
+int.py
