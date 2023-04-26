@@ -26,7 +26,6 @@ class Interpreter(InterpreterBase):
     
     def __discover_all_classes_and_track_them(self, parsed_program):
         # find all classes and put them is all_classes
-        self.class_manager = ClassManager(parsed_program, self.CLASS_DEF)
         for class_def in parsed_program:
             if class_def[1] not in self.all_classes and class_def[0] == self.CLASS_DEF:
                 self.all_classes[class_def[1]] = ClassDefinition(class_def[1], class_def[2:], self)
@@ -41,7 +40,10 @@ class Interpreter(InterpreterBase):
             self.error(ErrorType.NAME_ERROR, f"class {class_name} can't be found")
 
     def __init_operations(self):
-        # inspired by last year Carey's solution
+        """
+        Inspired by fall 22 Carey's solution on Apr 22 2023
+        https://github.com/UCLA-CS-131/fall-22-proj-starter/blob/main/interpreterv1.py
+        """
         self.operations[Type.INT] = {
             '+': lambda x,y: Value(x.val()+y.val(), Type.INT),
             '-': lambda x,y: Value(x.val()-y.val(), Type.INT),
@@ -75,24 +77,6 @@ class Interpreter(InterpreterBase):
             '==': lambda x,y: Value(x.val() is y.val(), Type.BOOL),
             '!=': lambda x,y: Value(x.val() is not y.val(), Type.BOOL)
         }
-
-
-class ClassManager:
-    """Keep Track of class location"""
-    def __init__(self, parsed_program, class_definition):
-        self.class_location = {}
-        self.__add_all_classes(parsed_program, class_definition)
-    
-    def __add_all_classes(self, parsed_program, class_definition):
-        for i in range(len(parsed_program)):
-            if parsed_program[i][0] == class_definition:
-                self.class_location[parsed_program[i][1]] = i
-    
-    def get_class_location(self, class_name):
-        if class_name not in self.class_location.keys():
-            return ErrorType.NAME_ERROR
-        return self.class_location[class_name]
-        
 
 class ClassDefinition:
     def __init__(self, name, class_definition, interpreter):
