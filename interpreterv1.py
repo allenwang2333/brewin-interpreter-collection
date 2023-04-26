@@ -43,37 +43,37 @@ class Interpreter(InterpreterBase):
     def __init_operations(self):
         # inspired by last year Carey's solution
         self.operations[Type.INT] = {
-            '+': lambda a,b: Value(a.val()+b.val(), Type.INT),
-            '-': lambda a,b: Value(a.val()-b.val(), Type.INT),
-            '*': lambda a,b: Value(a.val()*b.val(), Type.INT),
-            '/': lambda a,b: Value(a.val()/b.val(), Type.INT),
-            '%': lambda a,b: Value(a.val()%b.val(), Type.INT),
-            '==': lambda a,b: Value(a.val()==b.val(), Type.BOOL),
-            '>=': lambda a,b: Value(a.val()>=b.val(), Type.BOOL),
-            '<=': lambda a,b: Value(a.val()<=b.val(), Type.BOOL),
-            '>': lambda a,b: Value(a.val()>b.val(), Type.BOOL),
-            '<': lambda a,b: Value(a.val()<b.val(), Type.BOOL),
-            '!=': lambda a,b: Value(a.val()!=b.val(), Type.BOOL),
+            '+': lambda x,y: Value(x.val()+y.val(), Type.INT),
+            '-': lambda x,y: Value(x.val()-y.val(), Type.INT),
+            '*': lambda x,y: Value(x.val()*y.val(), Type.INT),
+            '/': lambda x,y: Value(x.val()/y.val(), Type.INT),
+            '%': lambda x,y: Value(x.val()%y.val(), Type.INT),
+            '==': lambda x,y: Value(x.val()==y.val(), Type.BOOL),
+            '>=': lambda x,y: Value(x.val()>=y.val(), Type.BOOL),
+            '<=': lambda x,y: Value(x.val()<=y.val(), Type.BOOL),
+            '>': lambda x,y: Value(x.val()>y.val(), Type.BOOL),
+            '<': lambda x,y: Value(x.val()<y.val(), Type.BOOL),
+            '!=': lambda x,y: Value(x.val()!=y.val(), Type.BOOL),
         }
         self.operations[Type.BOOL] = {
-            '!=': lambda a,b: Value(a.val()!=b.val(), Type.BOOL),
-            '==': lambda a,b: Value(a.val()==b.val(), Type.BOOL),
-            '&': lambda a,b: Value(a.val()&b.val(), Type.BOOL),
-            '|': lambda a,b: Value(a.val()|b.val(), Type.BOOL),
-            '!': lambda a: Value(not a.val(), Type.BOOL)
+            '!=': lambda x,y: Value(x.val()!=y.val(), Type.BOOL),
+            '==': lambda x,y: Value(x.val()==y.val(), Type.BOOL),
+            '&': lambda x,y: Value(x.val()&y.val(), Type.BOOL),
+            '|': lambda x,y: Value(x.val()|y.val(), Type.BOOL),
+            '!': lambda x: Value(not x.val(), Type.BOOL)
         }
         self.operations[Type.STRING] = {
-            '+': lambda a,b: Value(a.val()+b.val(), Type.STRING),
-            '==': lambda a,b: Value(a.val()==b.val(), Type.BOOL),
-            '!=': lambda a,b: Value(a.val()!=b.val(), Type.BOOL),
-            '>=': lambda a,b: Value(a.val()>=b.val(), Type.BOOL),
-            '<=': lambda a,b: Value(a.val()<=b.val(), Type.BOOL),
-            '>': lambda a,b: Value(a.val()>b.val(), Type.BOOL),
-            '<': lambda a,b: Value(a.val()<b.val(), Type.BOOL),
+            '+': lambda x,y: Value(x.val()+y.val(), Type.STRING),
+            '==': lambda x,y: Value(x.val()==y.val(), Type.BOOL),
+            '!=': lambda x,y: Value(x.val()!=y.val(), Type.BOOL),
+            '>=': lambda x,y: Value(x.val()>=y.val(), Type.BOOL),
+            '<=': lambda x,y: Value(x.val()<=y.val(), Type.BOOL),
+            '>': lambda x,y: Value(x.val()>y.val(), Type.BOOL),
+            '<': lambda x,y: Value(x.val()<y.val(), Type.BOOL),
         }
         self.operations[Type.POINTER] = {
-            '==': lambda a,b: Value(a.val() is b.val(), Type.BOOL),
-            '!=': lambda a,b: Value(a.val() is not b.val(), Type.BOOL)
+            '==': lambda x,y: Value(x.val() is y.val(), Type.BOOL),
+            '!=': lambda x,y: Value(x.val() is not y.val(), Type.BOOL)
         }
 
 
