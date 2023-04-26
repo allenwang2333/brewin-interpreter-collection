@@ -228,10 +228,11 @@ class ObjectDefinition:
                 result = self.__execute_call_statement(statement[2])
             else:
                 result = self.__evaluate_expression(statement[2])
-            if statement[1] in self.obj_variables:
-                self.obj_variables[statement[1]] = result
-            elif statement[1] in self.method_variables[-1]:
+            
+            if statement[1] in self.method_variables[-1]:
                 self.method_variables[-1][statement[1]] = result
+            elif statement[1] in self.obj_variables:
+                self.obj_variables[statement[1]] = result
         else:
             if statement[1] in self.method_variables[-1]:
                 if statement[2] in self.method_variables[-1]:
@@ -249,7 +250,27 @@ class ObjectDefinition:
                     self.obj_variables[statement[1]] = Value(statement[2])
 
     def __execute_call_statement(self, statement):
-        if statement[1] == 'me':
+        if statement[1][0] == 'new':
+            local_variables = {}
+            obj = self.__evaluate_expression(statement[1]).val()
+            method = obj.__find_method(statement[2])
+            param_names = method.get_params()
+            param_values = statement[3:]
+            if len(param_values) != method.get_param_len():
+                self.interpreter.error(ErrorType.TYPE_ERROR, "parameters does not match", statement[0].line_num)
+            else:
+                for i in range(len(param_values)):
+                    if isinstance(param_values[i], list):
+                        local_variables[param_names[i]] = self.__evaluate_expression(param_values[i])
+                    elif param_values[i] in self.method_variables[-1]:
+                        local_variables[param_names[i]] = self.method_variables[-1][param_values[i]]
+                    elif param_values[i] in self.obj_variables:
+                        local_variables[param_names[i]] = self.obj_variables[param_values[i]]
+                    else:
+                        local_variables[param_names[i]] = Value(param_values[i])
+                result = obj.run_method(statement[2], local_variables)
+            return result
+        elif statement[1] == 'me':
             local_variables = {}
             method = self.__find_method(statement[2])
             param_names = method.get_params()
@@ -292,8 +313,7 @@ class ObjectDefinition:
                         local_variables[param_names[i]] = Value(param_values[i])
                 result = obj.run_method(statement[2], local_variables)
             return result
-            
-
+        
         elif statement[1] in self.obj_variables and self.obj_variables[statement[1]].val() == None:
             self.interpreter.error(ErrorType.FAULT_ERROR, "referenced a null value")
         else:
@@ -584,18 +604,24 @@ def main():
 
     test_3 = """
 (class main
-  (field x 10)
-  (field y 20)
+  (field other null)
   (method main ()
     (begin
-      (call me set_fields x)
-      (print x)
+      (set other (new other_class))
+      (print "Sum: " (+ (call (new other_class) add 3 7) (call (new other_class) add 5 5)))
+      (call (new other_class) add 3 7)
     )
   )
-  (method set_fields (param)
-    (set param 11)
+)
+
+(class other_class
+  (method add (a b)
+    (return (+ a b))
   )
 )
+
+
+
 
     """.split('\n')
 
