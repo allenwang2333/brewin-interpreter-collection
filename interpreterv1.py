@@ -430,31 +430,31 @@ class ObjectDefinition:
 
 
 def is_a_print_statement(statement):
-    return statement[0] == 'print'
+    return statement[0] == InterpreterBase.PRINT_DEF
 
 def is_an_input_statement(statement):
     return (statement[0] == 'inputi') or (statement[0] == 'inputs')
 
 def is_a_set_statement(statement):
-    return statement[0] == 'set'
+    return statement[0] == InterpreterBase.SET_DEF
 
 def is_a_call_statement(statement):
-    return statement[0] == 'call'
+    return statement[0] == InterpreterBase.CALL_DEF
 
 def is_a_while_statement(statement):
-    return statement[0] == 'while'
+    return statement[0] == InterpreterBase.WHILE_DEF
 
 def is_an_if_statement(statement):
-    return statement[0] == 'if'
+    return statement[0] == InterpreterBase.IF_DEF
 
 def is_a_return_statement(statement):
-    return statement[0] == 'return'
+    return statement[0] == InterpreterBase.RETURN_DEF
 
 def is_a_begin_statement(statement):
-    return statement[0] == 'begin'
+    return statement[0] == InterpreterBase.BEGIN_DEF
 
 def is_a_new_statement(statement):
-    return statement[0] == 'new'
+    return statement[0] == InterpreterBase.NEW_DEF
 
 class Method:
     def __init__(self, name, parameters, statements):
