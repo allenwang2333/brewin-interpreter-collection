@@ -170,12 +170,7 @@ class ObjectDefinition:
             elif out_stmt[i] in self.method_variables[-1]:
                 out_str += self.__format_string(self.method_variables[-1][out_stmt[i]])
             elif out_stmt[i] in self.obj_variables:
-                out_str += self.__format_string(self.obj_variables[out_stmt[i]])
-
-            # elif out_stmt[i][0] == '"' and out_stmt[i][-1] == '"':
-            #     out_str += out_stmt[i].strip('"')
-            # elif out_stmt[i][0] == '"' and out_stmt[i][-1] == '"':
-            #     out_str += self.__format_string(Value(out_stmt[i]))    
+                out_str += self.__format_string(self.obj_variables[out_stmt[i]])  
             elif Value(out_stmt[i]).typeof() is not Type.UNDEFINED:
                 out_str += self.__format_string(Value(out_stmt[i]))
             else:
