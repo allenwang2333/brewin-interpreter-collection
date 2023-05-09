@@ -119,7 +119,7 @@ class ClassDefinition:
     # uses the definition of a class to create and return an instance of it
     def instantiate_object(self):
         obj = ObjectDefinition(self.interpreter)
-
+        obj.class_name = self.my_name
         #! assume a class cannot inherit itself
         if self.super_class is not None:
             if self.super_class in self.interpreter.all_classes:
@@ -140,6 +140,7 @@ class ClassDefinition:
 class ObjectDefinition:
     def __init__(self, interpreter):
         self.interpreter = interpreter
+        self.class_name = None
         self.obj_methods = {} # object methods
         self.obj_variables = {} # fields of object
         self.method_variables = [] # stack frame of variables
@@ -149,7 +150,7 @@ class ObjectDefinition:
     def add_method(self, method):
         if method[1] in self.obj_methods:
             self.interpreter.error(ErrorType.NAME_ERROR, "duplicate method")
-        self.obj_methods[method[2]] = Method(self.interpreter.type_match[method[1]], method[2], method[3], method[4])
+        self.obj_methods[method[2]] = Method(self.interpreter.type_match[method[1]], method[2], method[3], method[4], self.interpreter)
 
     def add_field(self, field):
         if field[2] in self.obj_variables:
@@ -159,9 +160,9 @@ class ObjectDefinition:
             self.interpreter.error(ErrorType.TYPE_ERROR, "invalid type")
         self.obj_variables[field[2]] = temp_value
    # Interpret the specified method using the provided parameters    
-    def run_method(self, method_name, parameters={}):
+    def run_method(self, method_name, parameters={}, type_signature=[]):
         self.method_variables.append(parameters)
-        method, calling_obj= self.__find_method(method_name)
+        method, calling_obj= self.__find_method(method_name, type_signature)
         statement = method.get_top_level_statement()
         result = calling_obj.__run_statement(statement)
         self.method_variables.pop()
@@ -169,11 +170,11 @@ class ObjectDefinition:
         
         return result
     
-    def __find_method(self, method_name):
-        if method_name in self.obj_methods:
+    def __find_method(self, method_name, type_signature):
+        if method_name in self.obj_methods and self.obj_methods[method_name].get_type_signature() == type_signature:
             return self.obj_methods[method_name], self
         elif self.super_object is not None:
-            return self.super_object.__find_method(method_name)
+            return self.super_object.__find_method(method_name, type_signature)
         else:
             self.interpreter.error(ErrorType.NAME_ERROR, "method undefined")
 
@@ -304,24 +305,20 @@ class ObjectDefinition:
         method = None
         param_names = None
         param_values = None
+        type_signature = []
+        temp_list = []
         if statement[1][0] == 'new':
             obj = self.__evaluate_expression(statement[1]).val()
-            method, calling_obj = obj.__find_method(statement[2])
-            param_names = method.get_params()
             param_values = statement[3:]
         elif statement[1] == 'me':
-            method, calling_obj = self.__find_method(statement[2])
-            param_names = method.get_params()
+            obj = self
             param_values = statement[3:]
         elif statement[1] == 'super':
-            method, calling_obj = self.super_object.__find_method(statement[2])
-            param_names = method.get_params()
+            obj = self.super_object
             param_values = statement[3:]
         elif statement[1] in self.obj_variables and isinstance(self.obj_variables[statement[1]].val(), ObjectDefinition):
             obj_name = statement[1]
             obj = self.obj_variables[obj_name].val()
-            method, calling_obj = obj.__find_method(statement[2])
-            param_names = method.get_params()
             param_values = statement[3:]
 
         elif statement[1] in self.obj_variables and self.obj_variables[statement[1]].val() == None:
@@ -329,35 +326,36 @@ class ObjectDefinition:
         else:
             self.interpreter.error(ErrorType.FAULT_ERROR, "referenced illegal value")
 
-        if len(param_values) != method.get_param_len():
-            self.interpreter.error(ErrorType.TYPE_ERROR, "parameters does not match", statement[0].line_num)
-        else:
-            for i in range(len(param_values)):
-                if isinstance(param_values[i], list):
-                    local_variables[param_names[i][1]] = self.__evaluate_expression(param_values[i])
-                elif param_values[i] in self.method_variables[-1]:
-                    local_variables[param_names[i][1]] = self.method_variables[-1][param_values[i]]
-                elif param_values[i] in self.obj_variables:
-                    local_variables[param_names[i][1]] = self.obj_variables[param_values[i]]
-                else:
-                    temp_value = Value(param_values[i])
-                    if temp_value.typeof() == self.interpreter.type_match[param_names[i][0]]:
-                        local_variables[param_names[i][1]] = Value(param_values[i])
-                    else:
-                        self.interpreter.error(ErrorType.TYPE_ERROR, 'invalid types')
 
-            result = calling_obj.run_method(statement[2], local_variables)
+        for i in range(len(param_values)):
+            if isinstance(param_values[i], list):
+                temp_value = self.__evaluate_expression(param_values[i])
+            elif param_values[i] in self.method_variables[-1]:
+                temp_value = self.method_variables[-1][param_values[i]]
+            elif param_values[i] in self.obj_variables:
+                temp_value = self.obj_variables[param_values[i]]
+            else:
+                temp_value = Value(param_values[i])
+            temp_list.append(temp_value)
+            type_signature.append(temp_value.typeof())
+
+        method, calling_obj = obj.__find_method(statement[2], type_signature)
+        param_names = method.get_params()
+        for j in range(len(param_names)):
+            local_variables[param_names[j][1]] = temp_list[j]
+
+        result = calling_obj.run_method(statement[2], local_variables, type_signature)
             # ! need to deal with classes
-            return_type = method.get_return_type()
+        return_type = method.get_return_type()
 
-            if result is None:
-                if return_type != Type.RETURN:
-                    result = self.interpreter.default_return_val[return_type]
-            elif result.typeof() == Type.RETURN and return_type != Type.RETURN:
+        if result is None:
+            if return_type != Type.RETURN:
                 result = self.interpreter.default_return_val[return_type]
-            elif result.typeof() != return_type:
-                self.interpreter.error(ErrorType.TYPE_ERROR, 'invalid return type')
-            return result
+        elif result.typeof() == Type.RETURN and return_type != Type.RETURN:
+            result = self.interpreter.default_return_val[return_type]
+        elif result.typeof() != return_type:
+            self.interpreter.error(ErrorType.TYPE_ERROR, 'invalid return type')
+        return result
 
 
     def __execute_while_statement(self, statement):
@@ -432,11 +430,12 @@ class ObjectDefinition:
         return result
 
     def __execute_let_statements(self, statement):
-        print(statement)
         variables = statement[1]
         statements = statement[2:]
         let_variables = {}
         for i in range(len(variables)):
+            if variables[i][1] in let_variables:
+                self.interpreter.error(ErrorType.NAME_ERROR, 'Duplicate definition of local variables')
             if isinstance(variables[i][2], list):
                 temp_value = self.__evaluate_expression(variables[i][2])
             else:
@@ -563,11 +562,20 @@ def is_a_let_statement(statement):
     return statement[0] == InterpreterBase.LET_DEF
 
 class Method:
-    def __init__(self, return_type, name, parameters, statements):
+    def __init__(self, return_type, name, parameters, statements, interpreter):
+        self.interpreter = interpreter
         self.name = name
         self.parameters = parameters
         self.statements = statements #! this may be a list of statements
         self.return_type = return_type
+        self.type_signature = []
+        self.__init_type_signature()
+    def __init_type_signature(self):
+        for i in self.parameters:
+            self.type_signature.append(self.interpreter.type_match[i[0]])
+
+    def get_type_signature(self):
+        return self.type_signature
 
     def get_top_level_statement(self):
         return self.statements
@@ -588,12 +596,6 @@ class Type(Enum):
     POINTER = 4
     UNDEFINED = -1
     RETURN = 0
-
-    RETURN_INT = 5
-    RETURN_STRING = 6
-    RETURN_BOOL = 7
-    RETURN_VOID = 8
-
 
 class Value:
     "value class"
@@ -680,7 +682,7 @@ def main():
 
     """.split('\n')
     interpreter = Interpreter()
-    interpreter.run(test_2)
+    interpreter.run(test_1)
 
 if __name__ == '__main__':
     main()
@@ -690,3 +692,4 @@ if __name__ == '__main__':
 # 2.inheritance
 # 3.polymorphism
 # 4.local vars
+# 5.overloading
