@@ -143,6 +143,7 @@ class ObjectDefinition:
         self.obj_methods = {} # object methods
         self.obj_variables = {} # fields of object
         self.method_variables = [] # stack frame of variables
+        self.local_variables = [] # stack frame of local variables
         self.super_object = None
 
     def add_method(self, method):
@@ -193,6 +194,8 @@ class ObjectDefinition:
             result = self.__execute_if_statement(statement)
         elif is_a_return_statement(statement):
             result = self.__execute_return_statement(statement)
+        elif is_a_let_statement(statement):
+            result = self.__execute_let_statements(statement)
         elif is_a_begin_statement(statement):
             result = self.__execute_all_sub_statements_of_begin_statement(statement) 
         return result
@@ -206,6 +209,8 @@ class ObjectDefinition:
                     out_str += self.__format_string(self.__execute_call_statement(out_stmt[i]))
                 else:   
                     out_str += self.__format_string(self.__evaluate_expression(out_stmt[i]))
+            elif len(self.local_variables) != 0 and out_stmt[i] in self.local_variables[-1]:
+                out_str += self.__format_string(self.local_variables[-1][out_stmt[i]])
             elif out_stmt[i] in self.method_variables[-1]:
                 out_str += self.__format_string(self.method_variables[-1][out_stmt[i]])
             elif out_stmt[i] in self.obj_variables:
@@ -256,23 +261,42 @@ class ObjectDefinition:
             elif statement[1] in self.super_object.object_varaibles:
                 self.super_object.obj_variables[statement[1]] = result
         else:
-            if statement[1] in self.method_variables[-1]:
-                if statement[2] in self.method_variables[-1]:
-                    self.method_variables[-1][statement[1]] = self.method_variables[-1][statement[2]]
-                elif statement[2] in self.obj_variables:
-                    self.method_variables[-1][statement[1]] = self.obj_variables[statement[2]]
+            if len(self.local_variables) != 0 and statement[1] in self.local_variables[-1]:
+                temp_value = Value(statement[2])
+                if temp_value.typeof() == self.local_variables[-1][statement[1]].typeof():
+                    self.local_variables[-1][statement[1]] = temp_value
                 else:
-                    self.method_variables[-1][statement[1]] = Value(statement[2])
+                    self.interpreter.error(ErrorType.TYPE_ERROR, 'Invalid assignment')
+            elif statement[1] in self.method_variables[-1]:
+                if statement[2] in self.method_variables[-1]:
+                    temp_value = self.method_variables[-1][statement[2]]
+                elif statement[2] in self.obj_variables:
+                    temp_value = self.obj_variables[statement[2]]
+                else:
+                    temp_value = Value(statement[2])
+                if temp_value.typeof() == self.method_variables[-1][statement[1]].typeof():
+                    self.method_variables[-1][statement[1]] = temp_value
+                else:
+                    self.interpreter.error(ErrorType.TYPE_ERROR, 'Invalid assignment')
+
             elif statement[1] in self.obj_variables:
                 if statement[2] in self.method_variables[-1]:
-                    self.obj_variables[statement[1]] = self.method_variables[-1][statement[2]]
+                     temp_value = self.method_variables[-1][statement[2]]
                 elif statement[2] in self.obj_variables:
-                    self.obj_variables[statement[1]] = self.obj_variables[statement[2]]
+                    temp_value = self.obj_variables[statement[2]]
                 else:
-                    self.obj_variables[statement[1]] = Value(statement[2])
+                    temp_value = Value(statement[2])
+                if temp_value.typeof() == self.obj_variables[statement[1]].typeof():
+                    self.obj_variables[statement[1]] = temp_value
+                else:
+                    self.interpreter.error(ErrorType.TYPE_ERROR, 'Invalid assignment')
             elif statement[1] in self.super_object.obj_variables:
                 if statement[2] in self.method_variables[-1]:
-                    self.super_object.obj_variables[statement[1]] = self.method_variables[-1][statement[2]]
+                    temp_value = self.method_variables[-1][statement[2]]
+                if temp_value.typeof() == self.super_object.obj_variables[statement[1]].typeof():
+                    self.super_object.obj_variables[statement[1]] = temp_value
+                else:
+                    self.interpreter.error(ErrorType.TYPE_ERROR, 'Invalid assignment')
 
 
     def __execute_call_statement(self, statement):
@@ -407,6 +431,33 @@ class ObjectDefinition:
             result = Value(statement[1])
         return result
 
+    def __execute_let_statements(self, statement):
+        print(statement)
+        variables = statement[1]
+        statements = statement[2:]
+        let_variables = {}
+        for i in range(len(variables)):
+            if isinstance(variables[i][2], list):
+                temp_value = self.__evaluate_expression(variables[i][2])
+            else:
+                temp_value = Value(variables[i][2])
+
+            if temp_value.typeof() == self.interpreter.type_match[variables[i][0]]:
+                let_variables[variables[i][1]] = temp_value
+            else:
+                self.interpreter.error(ErrorType.TYPE_ERROR, 'invalid types')
+        self.local_variables.append(let_variables)
+        for j in statements:
+            result = self.__run_statement(j)
+            # ! some problem here
+            if not is_a_call_statement(j) and isinstance(result, Value):
+
+                return result
+        self.local_variables.pop()
+        return result
+
+
+
     def __execute_all_sub_statements_of_begin_statement(self, statement):
         statements = statement[1:]
         result = None
@@ -508,6 +559,8 @@ def is_a_begin_statement(statement):
 def is_a_new_statement(statement):
     return statement[0] == InterpreterBase.NEW_DEF
 
+def is_a_let_statement(statement):
+    return statement[0] == InterpreterBase.LET_DEF
 
 class Method:
     def __init__(self, return_type, name, parameters, statements):
@@ -607,8 +660,27 @@ def main():
 )
 
     """.split('\n')
+
+    test_2="""
+    (class main
+ (method void foo ((int x))
+   (begin 
+     (print x)
+     (let ((int y 5))
+          (print y)
+          (set y 25)
+          (print y)
+     )
+   )
+ )
+ (method void main ()
+   (call me foo 10)
+ )
+)
+
+    """.split('\n')
     interpreter = Interpreter()
-    interpreter.run(test_1)
+    interpreter.run(test_2)
 
 if __name__ == '__main__':
     main()
