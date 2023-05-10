@@ -2,7 +2,6 @@ from intbase import InterpreterBase, ErrorType
 from bparser import BParser
 from enum import Enum
 
-
 class Interpreter(InterpreterBase):
     """Interpreter Class"""
     def __init__(self, console_output=True, inp=None, trace_output=False):
@@ -32,12 +31,12 @@ class Interpreter(InterpreterBase):
     def __discover_all_classes_and_track_them(self, parsed_program):
         # find all classes and put them is all_classes
         for class_def in parsed_program:
+            print(class_def)
             if class_def[1] not in self.all_classes and class_def[0] == self.CLASS_DEF:
                 class_definition = ClassDefinition(class_def[1], class_def[2:], self)
                 self.class_relationships[class_def[1]] = class_definition.super_class
                 self.all_classes[class_def[1]] = class_definition
-                if class_def != InterpreterBase.MAIN_CLASS_DEF:
-                    self.type_match[class_def[1]] = Type.POINTER
+                self.type_match[class_def[1]] = Type.POINTER
             else:
                 self.error(ErrorType.TYPE_ERROR, f"duplicate class name {class_def[1]} {class_def[1].line_num}")
             # ! check if the program has at least one class
@@ -151,9 +150,10 @@ class ObjectDefinition:
         self.super_object = None
 
     def add_method(self, method):
-        if method[1] in self.obj_methods:
+        if method[2] in self.obj_methods:
             self.interpreter.error(ErrorType.NAME_ERROR, "duplicate method")
-        self.obj_methods[method[2]] = Method(method[1], method[2], method[3], method[4], self.interpreter)
+        else:
+            self.obj_methods[method[2]] = Method(method[1], method[2], method[3], method[4], self.interpreter)
 
     def add_field(self, field):
         if field[2] in self.obj_variables:
@@ -171,13 +171,27 @@ class ObjectDefinition:
         statement = method.get_top_level_statement()
         result = calling_obj.__run_statement(statement)
         self.method_variables.pop()
-
-        
         return result
     
     def __find_method(self, method_name, type_signature):
         if method_name in self.obj_methods and self.obj_methods[method_name].get_type_signature() == type_signature:
             return self.obj_methods[method_name], self
+        elif method_name in self.obj_methods and len(self.obj_methods[method_name].get_type_signature()) == len(type_signature):
+            method_type_signature = self.obj_methods[method_name].get_type_signature()
+            flag = True
+            for i in range(len(method_type_signature)):
+                if isinstance(method_type_signature[i], tuple):
+                    if not self.__find_class_name(method_type_signature[i][1], type_signature[i][1]):
+                        flag = False
+                else:
+                    if method_type_signature[i] != type_signature[1]:
+                        flag = False
+            if flag:
+                return self.obj_methods[method_name], self
+            elif self.super_object is not None:
+                return self.super_object.__find_method(method_name, type_signature)
+            else:
+                self.interpreter.error(ErrorType.NAME_ERROR, "method undefined")
         elif self.super_object is not None:
             return self.super_object.__find_method(method_name, type_signature)
         else:
@@ -255,69 +269,69 @@ class ObjectDefinition:
                 # ! there might be a problem with stack of super class
                 self.interpreter.error(ErrorType.NAME_ERROR, "undefined variable", statement[0].line_num)
 
+        name = statement[1]
         if isinstance(statement[2], list):
-            
             if statement[2][0] == 'call':
                 result = self.__execute_call_statement(statement[2])
             else:
                 result = self.__evaluate_expression(statement[2])
-            if statement[1] in self.method_variables[-1]:
-                if result.typeof() == self.method_variables[-1][statement[1]].typeof():
-                    if result.typeof() == Type.POINTER:
-                        if not self.__find_class_name(self.method_variables[-1][statement[1]].class_name, result.class_name):
-                            self.interpreter.error(ErrorType.TYPE_ERROR, 'Assigning incompatible types')
-                    self.method_variables[-1][statement[1]] = result
-                else:
-                    self.interpreter.error(ErrorType.TYPE_ERROR, 'Assigning incompatible types')
-            elif statement[1] in self.obj_variables:
-                if result.typeof() == self.obj_variables[statement[1]].typeof():
-                    if result.typeof() == Type.POINTER:
-                        if not self.__find_class_name(self.obj_variables[statement[1]].class_name, result.class_name):
-                            self.interpreter.error(ErrorType.TYPE_ERROR, 'Assigning incompatible types')
-                    self.obj_variables[statement[1]] = result
-                else:
-                    self.interpreter.error(ErrorType.TYPE_ERROR, 'Assigning incompatible types')
-                self.obj_variables[statement[1]] = result
+            if name in self.method_variables[-1]:
+                self.__type_check(self.method_variables[-1][name], result)
+                self.method_variables[-1][name] = result
+            elif name in self.obj_variables:
+                self.__type_check(self.obj_variables[name], result)
+                self.obj_variables[name] = result
         else:
-            if len(self.local_variables) != 0 and statement[1] in self.local_variables[-1]:
+            if len(self.local_variables) != 0 and name in self.local_variables[-1]:
                 temp_value = Value(statement[2])
-                if temp_value.typeof() == self.local_variables[-1][statement[1]].typeof():
-                    if temp_value.typeof == Type.POINTER:
-                        if not self.__find_class_name(self.local_variables[-1][statement[1]].class_name, temp_value.class_name):
-                            self.interpreter.error(ErrorType.TYPE_ERROR, 'Assigning incompatible types')
-                    self.local_variables[-1][statement[1]] = temp_value
-                else:
-                    self.interpreter.error(ErrorType.TYPE_ERROR, 'Invalid assignment')
-            elif statement[1] in self.method_variables[-1]:
-                if statement[2] in self.method_variables[-1]:
+                if temp_value.typeof() == Type.POINTER:
+                    temp_value.class_name = self.local_variables[-1][name].class_name
+                self.__type_check(self.local_variables[-1][name], temp_value)
+                self.local_variables[-1][statement[1]] = temp_value
+            elif name in self.method_variables[-1]:
+                if len(self.local_variables) != 0 and name in self.local_variables[-1]:
+                    temp_value = self.local_variables[-1][statement[2]]
+                elif statement[2] in self.method_variables[-1]:
                     temp_value = self.method_variables[-1][statement[2]]
                 elif statement[2] in self.obj_variables:
                     temp_value = self.obj_variables[statement[2]]
                 else:
                     temp_value = Value(statement[2])
-                if temp_value.typeof() == self.method_variables[-1][statement[1]].typeof():
-                    self.method_variables[-1][statement[1]] = temp_value
-                else:
-                    self.interpreter.error(ErrorType.TYPE_ERROR, 'Invalid assignment')
+                    if temp_value.typeof() == Type.POINTER:
+                        temp_value.class_name = self.method_variables[-1][name].class_name
+                self.__type_check(self.method_variables[-1][name], temp_value)
+                self.method_variables[-1][statement[1]] = temp_value
 
-            elif statement[1] in self.obj_variables:
+            elif name in self.obj_variables:
+                if len(self.local_variables) != 0 and name in self.local_variables[-1]:
+                    temp_value = self.local_variables[-1][name]
                 if statement[2] in self.method_variables[-1]:
                      temp_value = self.method_variables[-1][statement[2]]
                 elif statement[2] in self.obj_variables:
                     temp_value = self.obj_variables[statement[2]]
                 else:
                     temp_value = Value(statement[2])
-                if temp_value.typeof() == self.obj_variables[statement[1]].typeof():
-                    self.obj_variables[statement[1]] = temp_value
-                else:
-                    self.interpreter.error(ErrorType.TYPE_ERROR, 'Invalid assignment')
-            elif statement[1] in self.super_object.obj_variables:
-                if statement[2] in self.method_variables[-1]:
-                    temp_value = self.method_variables[-1][statement[2]]
-                if temp_value.typeof() == self.super_object.obj_variables[statement[1]].typeof():
-                    self.super_object.obj_variables[statement[1]] = temp_value
-                else:
-                    self.interpreter.error(ErrorType.TYPE_ERROR, 'Invalid assignment')
+                    if temp_value.typeof() == Type.POINTER:
+                        temp_value.class_name = self.obj_variables[name].class_name
+
+                self.__type_check(self.obj_variables[name], temp_value)
+                self.obj_variables[statement[1]] = temp_value
+
+            # elif statement[1] in self.super_object.obj_variables:
+            #     if statement[2] in self.method_variables[-1]:
+            #         temp_value = self.method_variables[-1][statement[2]]
+            #     if temp_value.typeof() == self.super_object.obj_variables[statement[1]].typeof():
+            #         self.super_object.obj_variables[statement[1]] = temp_value
+            #     else:
+            #         self.interpreter.error(ErrorType.TYPE_ERROR, 'Invalid assignment')
+
+    def __type_check(self, ref, other_ref):
+        if ref.typeof() == other_ref.typeof():
+            if ref.typeof() == Type.POINTER:
+                if not self.__find_class_name(ref.class_name, other_ref.class_name):
+                    self.interpreter.error(ErrorType.TYPE_ERROR, 'Assigning incompatible type')
+        else:
+            self.interpreter.error(ErrorType.TYPE_ERROR, 'Assigning incompatible type')
 
 
     def __execute_call_statement(self, statement):
@@ -360,7 +374,10 @@ class ObjectDefinition:
             else:
                 temp_value = Value(param_values[i])
             temp_list.append(temp_value)
-            type_signature.append(temp_value.typeof())
+            if temp_value.typeof() == Type.POINTER:
+                type_signature.append((temp_value.typeof(), temp_value.class_name))
+            else:
+                type_signature.append(temp_value.typeof())
 
         method, calling_obj = obj.__find_method(statement[2], type_signature)
         param_names = method.get_params()
@@ -383,6 +400,8 @@ class ObjectDefinition:
         elif result.typeof() != return_type:
             self.interpreter.error(ErrorType.TYPE_ERROR, 'invalid return type')
         elif result.typeof() == Type.POINTER and return_type == Type.POINTER:
+            if result.val() is None:
+                result.class_name = method.real_return_type
             if not self.__find_class_name(method.real_return_type, result.class_name):
                 # test whether the class has such base class name
                 self.interpreter.error(ErrorType.TYPE_ERROR, 'Returning invalid class')
@@ -411,7 +430,9 @@ class ObjectDefinition:
         #print(statement)
         if isinstance(statement[1], list):
             eval_res = self.__evaluate_expression(statement[1])
-            if (eval_res.val()):
+            if eval_res.typeof() != Type.BOOL:
+                self.interpreter.error(ErrorType.TYPE_ERROR, "not boolean in if statement")
+            if eval_res.val():
                 return self.__run_statement(statement[2])
             elif len(statement) > 3:
                 return self.__run_statement(statement[3])
@@ -420,14 +441,18 @@ class ObjectDefinition:
                 return self.__run_statement(statement[2])
             elif len(statement) > 3:
                 return self.__run_statement(statement[3])
-        elif isinstance(self.method_variables[-1][statement[1]], Value) and self.method_variables[-1][statement[1]].typeof() == Type.BOOL:
+        elif statement[1] in self.method_variables[-1] and self.method_variables[-1][statement[1]].typeof() == Type.BOOL:
             flag = self.method_variables[-1][statement[1]]
+            if flag.typeof() != Type.BOOL:
+                self.interpreter.error(ErrorType.TYPE_ERROR, "not boolean in if statement")
             if flag.val():
                 return self.__run_statement(statement[2])
             elif len(statement) > 3:
                 return self.__run_statement(statement[3])
-        elif isinstance(self.obj_variables[statement[1]], Value) and self.obj_variables[statement[1]].typeof() == Type.BOOL:
+        elif statement[1] in self.obj_variables and self.obj_variables[statement[1]].typeof() == Type.BOOL:
             flag = self.obj_variables[statement[1]]
+            if flag.typeof() != Type.BOOL:
+                self.interpreter.error(ErrorType.TYPE_ERROR, "not boolean in if statement")
             if flag.val():
                 return self.__run_statement(statement[2])
             elif len(statement) > 3:
@@ -458,6 +483,7 @@ class ObjectDefinition:
             self.interpreter.error(ErrorType.NAME_ERROR, 'Cant access private field of base class')
         else:
             result = Value(statement[1])
+
         return result
 
     def __execute_let_statements(self, statement):
@@ -471,8 +497,13 @@ class ObjectDefinition:
                 temp_value = self.__evaluate_expression(variables[i][2])
             else:
                 temp_value = Value(variables[i][2])
+                if temp_value.typeof() == Type.POINTER:
+                    temp_value.class_name = variables[i][0]
 
             if temp_value.typeof() == self.interpreter.type_match[variables[i][0]]:
+                if temp_value.typeof() == Type.POINTER:
+                    if not self.__find_class_name(variables[i][0], temp_value.class_name):
+                        self.interpreter.error(ErrorType.TYPE_ERROR, 'invalid types')
                 let_variables[variables[i][1]] = temp_value
             else:
                 self.interpreter.error(ErrorType.TYPE_ERROR, 'invalid types')
@@ -481,7 +512,7 @@ class ObjectDefinition:
             result = self.__run_statement(j)
             # ! some problem here
             if not is_a_call_statement(j) and isinstance(result, Value):
-
+                self.local_variables.pop()
                 return result
         self.local_variables.pop()
         return result
@@ -537,6 +568,10 @@ class ObjectDefinition:
                     self.interpreter.error(ErrorType.TYPE_ERROR, "type does not match", statement[0].line_num)
                 if operator not in self.interpreter.operations[a.typeof()]:
                     self.interpreter.error(ErrorType.TYPE_ERROR, "incompatible operand")
+                if a.typeof() == Type.POINTER and (a.class_name is not None) and (b.class_name is not None):
+                    if not self.__find_class_name(a.class_name, b.class_name):
+                        if not self.__find_class_name(b.class_name, a.class_name):
+                            self.interpreter.error(ErrorType.TYPE_ERROR, 'Incompatible types')
                 return self.interpreter.operations[a.typeof()][operator](a, b)
             elif len(stack) == 2:
                 a = stack.pop()
@@ -609,12 +644,17 @@ class Method:
         self.statements = statements #! this may be a list of statements
         self.return_type = self.interpreter.type_match[return_type]
         self.type_signature = []
+        self.primitive_types = {'int', 'bool', 'string'}
         self.__init_type_signature()
         self.real_return_type = return_type
 
+
     def __init_type_signature(self):
         for i in self.parameters:
-            self.type_signature.append(self.interpreter.type_match[i[0]])
+            if i[0] in self.primitive_types:
+                self.type_signature.append(self.interpreter.type_match[i[0]])
+            else:
+                self.type_signature.append((Type.POINTER, i[0]))
 
     def get_type_signature(self):
         return self.type_signature
@@ -741,15 +781,48 @@ def main():
 )
 """.split('\n')
     test_4 = """
-    (class main
-  (method void foo ((int q))
-    (if (== q 0)
-      (return)
-      (print "q is non-zero")
+(class main
+ (method void foo ((int x))
+     (let ((int y 5) (string z "bar"))
+        (print x)
+        (print y)
+        (print z)
+     )
+ )
+ (method void main ()
+   (call me foo 10)
+ )
+)
+
+
+""".split('\n')
+
+    test_5 = """
+   (class main
+  (field person pf null)
+  (method void foo ((person p1) (student p2)) 
+    (if (== p1 p2)   
+      (print "same object")
+      (print "diff object")
     )
   )
-  (method void main () (call me foo 5))
+  (method void main ()
+    (begin 
+      (set pf (new person))
+      (call me foo pf pf)
+      (call me foo pf (new person))
+    )
+  )
 )
+
+(class person
+  (field int x 10)
+)
+(class student inherits person
+  (field int x 11)
+)
+
+
 """.split('\n')
     interpreter = Interpreter()
     interpreter.run(test_4)
