@@ -12,6 +12,7 @@ class Interpreter(InterpreterBase):
         self.operators = {'+', '-', '*', '/', '%', '==', '>=', '<=', '!=', '>', '<', '&', '|', '!'}
         self.type_match = {}
         self.default_return_val = {}
+        self.class_relationships = {}
         
 
     def run(self, program_source):
@@ -32,7 +33,9 @@ class Interpreter(InterpreterBase):
         # find all classes and put them is all_classes
         for class_def in parsed_program:
             if class_def[1] not in self.all_classes and class_def[0] == self.CLASS_DEF:
-                self.all_classes[class_def[1]] = ClassDefinition(class_def[1], class_def[2:], self)
+                class_definition = ClassDefinition(class_def[1], class_def[2:], self)
+                self.class_relationships[class_def[1]] = class_definition.super_class
+                self.all_classes[class_def[1]] = class_definition
                 if class_def != InterpreterBase.MAIN_CLASS_DEF:
                     self.type_match[class_def[1]] = Type.POINTER
             else:
@@ -150,7 +153,7 @@ class ObjectDefinition:
     def add_method(self, method):
         if method[1] in self.obj_methods:
             self.interpreter.error(ErrorType.NAME_ERROR, "duplicate method")
-        self.obj_methods[method[2]] = Method(self.interpreter.type_match[method[1]], method[2], method[3], method[4], self.interpreter)
+        self.obj_methods[method[2]] = Method(method[1], method[2], method[3], method[4], self.interpreter)
 
     def add_field(self, field):
         if field[2] in self.obj_variables:
@@ -158,6 +161,8 @@ class ObjectDefinition:
         temp_value = Value(field[3])
         if temp_value.typeof() != self.interpreter.type_match[field[1]]:
             self.interpreter.error(ErrorType.TYPE_ERROR, "invalid type")
+        if temp_value.typeof() == Type.POINTER:
+            temp_value.class_name = field[1]
         self.obj_variables[field[2]] = temp_value
    # Interpret the specified method using the provided parameters    
     def run_method(self, method_name, parameters={}, type_signature=[]):
@@ -245,26 +250,41 @@ class ObjectDefinition:
 
     def __execute_set_statement(self, statement):
 
-        if statement[1] not in self.obj_variables and statement[1] not in self.method_variables[-1]:
-            if self.super_object is not None and statement[1] not in self.super_object.obj_variables:
+        if len(self.local_variables) > 0 and statement[1] not in self.local_variables[-1]:
+            if statement[1] not in self.obj_variables and statement[1] not in self.method_variables[-1]:
                 # ! there might be a problem with stack of super class
                 self.interpreter.error(ErrorType.NAME_ERROR, "undefined variable", statement[0].line_num)
 
         if isinstance(statement[2], list):
+            
             if statement[2][0] == 'call':
                 result = self.__execute_call_statement(statement[2])
             else:
                 result = self.__evaluate_expression(statement[2])
             if statement[1] in self.method_variables[-1]:
-                self.method_variables[-1][statement[1]] = result
+                if result.typeof() == self.method_variables[-1][statement[1]].typeof():
+                    if result.typeof() == Type.POINTER:
+                        if not self.__find_class_name(self.method_variables[-1][statement[1]].class_name, result.class_name):
+                            self.interpreter.error(ErrorType.TYPE_ERROR, 'Assigning incompatible types')
+                    self.method_variables[-1][statement[1]] = result
+                else:
+                    self.interpreter.error(ErrorType.TYPE_ERROR, 'Assigning incompatible types')
             elif statement[1] in self.obj_variables:
+                if result.typeof() == self.obj_variables[statement[1]].typeof():
+                    if result.typeof() == Type.POINTER:
+                        if not self.__find_class_name(self.obj_variables[statement[1]].class_name, result.class_name):
+                            self.interpreter.error(ErrorType.TYPE_ERROR, 'Assigning incompatible types')
+                    self.obj_variables[statement[1]] = result
+                else:
+                    self.interpreter.error(ErrorType.TYPE_ERROR, 'Assigning incompatible types')
                 self.obj_variables[statement[1]] = result
-            elif statement[1] in self.super_object.object_varaibles:
-                self.super_object.obj_variables[statement[1]] = result
         else:
             if len(self.local_variables) != 0 and statement[1] in self.local_variables[-1]:
                 temp_value = Value(statement[2])
                 if temp_value.typeof() == self.local_variables[-1][statement[1]].typeof():
+                    if temp_value.typeof == Type.POINTER:
+                        if not self.__find_class_name(self.local_variables[-1][statement[1]].class_name, temp_value.class_name):
+                            self.interpreter.error(ErrorType.TYPE_ERROR, 'Assigning incompatible types')
                     self.local_variables[-1][statement[1]] = temp_value
                 else:
                     self.interpreter.error(ErrorType.TYPE_ERROR, 'Invalid assignment')
@@ -320,7 +340,10 @@ class ObjectDefinition:
             obj_name = statement[1]
             obj = self.obj_variables[obj_name].val()
             param_values = statement[3:]
-
+        elif statement[1] in self.method_variables[-1] and isinstance(self.method_variables[-1][statement[1]].val(), ObjectDefinition):
+            obj_name = statement[1]
+            obj = self.method_variables[-1][obj_name].val()
+            param_values = statement[3:]
         elif statement[1] in self.obj_variables and self.obj_variables[statement[1]].val() == None:
             self.interpreter.error(ErrorType.FAULT_ERROR, "referenced a null value")
         else:
@@ -342,6 +365,10 @@ class ObjectDefinition:
         method, calling_obj = obj.__find_method(statement[2], type_signature)
         param_names = method.get_params()
         for j in range(len(param_names)):
+            if temp_list[j].typeof() == Type.POINTER:
+                if not self.__find_class_name(param_names[j][0], temp_list[j].class_name):
+                    # test whether the class has such base class name
+                    self.interpreter.error(ErrorType.TYPE_ERROR, 'Passing invalid class')
             local_variables[param_names[j][1]] = temp_list[j]
 
         result = calling_obj.run_method(statement[2], local_variables, type_signature)
@@ -355,6 +382,10 @@ class ObjectDefinition:
             result = self.interpreter.default_return_val[return_type]
         elif result.typeof() != return_type:
             self.interpreter.error(ErrorType.TYPE_ERROR, 'invalid return type')
+        elif result.typeof() == Type.POINTER and return_type == Type.POINTER:
+            if not self.__find_class_name(method.real_return_type, result.class_name):
+                # test whether the class has such base class name
+                self.interpreter.error(ErrorType.TYPE_ERROR, 'Returning invalid class')
         return result
 
 
@@ -520,8 +551,10 @@ class ObjectDefinition:
                         self.interpreter.error(ErrorType.TYPE_ERROR, "undefined class")
                     else:
                         class_def = self.interpreter.all_classes[a]
-                        obj = class_def.instantiate_object() 
-                        return Value(obj, Type.POINTER)
+                        obj = class_def.instantiate_object()
+                        temp_value = Value(obj, Type.POINTER)
+                        temp_value.class_name = a
+                        return temp_value
                 else:
                     self.interpreter.error(ErrorType.TYPE_ERROR, "operator error", statement[0].line_num)
                 return self.interpreter.operations[a.typeof()][operator](a)
@@ -529,6 +562,13 @@ class ObjectDefinition:
         else:
             self.interpreter.error(ErrorType.TYPE_ERROR, "not an expression", statement[0].line_num)
 
+    def __find_class_name(self, base_name, derived_class):
+        if base_name == derived_class:
+            return True
+        elif self.interpreter.class_relationships[derived_class] is None:
+            return False
+        else:
+            return self.__find_class_name(base_name, self.interpreter.class_relationships[derived_class])
 
 
 def is_a_print_statement(statement):
@@ -567,9 +607,11 @@ class Method:
         self.name = name
         self.parameters = parameters
         self.statements = statements #! this may be a list of statements
-        self.return_type = return_type
+        self.return_type = self.interpreter.type_match[return_type]
         self.type_signature = []
         self.__init_type_signature()
+        self.real_return_type = return_type
+
     def __init_type_signature(self):
         for i in self.parameters:
             self.type_signature.append(self.interpreter.type_match[i[0]])
@@ -599,7 +641,9 @@ class Type(Enum):
 
 class Value:
     "value class"
-    def __init__(self, value, type=None):
+    def __init__(self, value, type=None, class_name=None):
+        self.class_name = None
+
         if type == None:
             if value.isnumeric() or (value[0] == '-' and value[1:].isnumeric()):
                 self.type = Type.INT
@@ -632,6 +676,7 @@ class Value:
             if type == Type.POINTER:
                 self.type = Type.POINTER
                 self.value = value
+                self.class_name = class_name
             if type == Type.RETURN:
                 self.type = Type.RETURN
                 self.value = value
@@ -643,53 +688,77 @@ class Value:
 
 def main():
     test_1 = """
-    (class foo
- (method void f ((int x)) (print x))
-)
-(class bar inherits foo
- (method void f ((int x) (int y)) (print x " " y))
-)
-
-(class main
- (field bar b null)
- (method void main ()
-   (begin
-     (set b (new bar))
-     (call b f 10)  	# calls version of f defined in foo
-     (call b f 10 20)   # calls version of f defined in bar
-   )
- )
+    (class main
+  (field bool q true)
+  (method void foo ((int x)) (print x))
+  (method void main ()
+    (call me foo q)
+  )
 )
 
     """.split('\n')
 
     test_2="""
     (class main
- (method void foo ((int x))
-   (begin 
-     (print x)
-     (let ((int y 5))
-          (print y)
-          (set y 25)
-          (print y)
-     )
-   )
- )
- (method void main ()
-   (call me foo 10)
- )
+  (method person foo () (return (new student)))
+  (method void main () (call me foo))
+)
+
+(class person
+(field int x 1)
+)
+
+(class student inherits person
+(field int u 1)
 )
 
     """.split('\n')
+    test_3 = """(class person
+  (field string name "jane")
+  (method void say_something () (print name " says hi")
+  )
+)
+
+(class student inherits person
+  (method void say_something ()
+    (print "Can I have an extension?")
+  )
+)
+
+(class main
+  (field person p null)
+  (method void foo ((person p)) # foo accepts a "person" as an argument
+    (call p say_something)
+  )
+  (method void main ()
+    (begin
+      (set p (new student))  # Assigns p, which is a person object ref
+                             # to a student obj. This is polymorphism!  
+      (call me foo p)        # Passes a student object as an argument 
+                             # to foo. This is also polymorphism!
+    )
+  )
+)
+""".split('\n')
+    test_4 = """
+    (class main
+  (method void foo ((int q))
+    (if (== q 0)
+      (return)
+      (print "q is non-zero")
+    )
+  )
+  (method void main () (call me foo 5))
+)
+""".split('\n')
     interpreter = Interpreter()
-    interpreter.run(test_1)
+    interpreter.run(test_4)
 
 if __name__ == '__main__':
     main()
 
-#! Need to implement:
+# ! Need to implement:
 # 1.call of other objects
 # 2.inheritance
 # 3.polymorphism
 # 4.local vars
-# 5.overloading
