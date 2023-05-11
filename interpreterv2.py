@@ -96,7 +96,7 @@ class Interpreter(InterpreterBase):
         self.default_return_val[Type.INT] = Value(0, Type.INT)
         self.default_return_val[Type.BOOL] = Value(False, Type.BOOL)
         self.default_return_val[Type.STRING] = Value('', Type.STRING)
-        self.default_return_val[Type.POINTER] = Value(None, Type.STRING)
+        self.default_return_val[Type.POINTER] = Value(None, Type.POINTER)
 
 
 class ClassDefinition:
@@ -146,7 +146,7 @@ class ObjectDefinition:
         self.obj_methods = {} # object methods
         self.obj_variables = {} # fields of object
         self.method_variables = [] # stack frame of variables
-        self.local_variables = [] # stack frame of local variables
+        self.local_variables = [{}] # stack frame of local variables
         self.super_object = None
 
     def add_method(self, method):
@@ -200,23 +200,23 @@ class ObjectDefinition:
   # runs/interprets the passed-in statement until completion and 
   # gets the result, if any
     def __run_statement(self, statement):
-        if is_a_print_statement(statement):
+        if statement[0] == InterpreterBase.PRINT_DEF:
             result = self.__execute_print_statement(statement)
-        elif is_an_input_statement(statement):
+        elif statement[0] == InterpreterBase.INPUT_INT_DEF or statement[0] == InterpreterBase.INPUT_STRING_DEF:
             result = self.__execute_input_statement(statement)
-        elif is_a_set_statement(statement):
+        elif statement[0] == InterpreterBase.SET_DEF:
             result = self.__execute_set_statement(statement)
-        elif is_a_call_statement(statement):
+        elif statement[0] == InterpreterBase.CALL_DEF:
             result = self.__execute_call_statement(statement)
-        elif is_a_while_statement(statement):
+        elif statement[0] == InterpreterBase.WHILE_DEF:
             result = self.__execute_while_statement(statement)
-        elif is_an_if_statement(statement):
+        elif statement[0] == InterpreterBase.IF_DEF:
             result = self.__execute_if_statement(statement)
-        elif is_a_return_statement(statement):
+        elif statement[0] == InterpreterBase.RETURN_DEF:
             result = self.__execute_return_statement(statement)
-        elif is_a_let_statement(statement):
+        elif statement[0] == InterpreterBase.LET_DEF:
             result = self.__execute_let_statements(statement)
-        elif is_a_begin_statement(statement):
+        elif statement[0] == InterpreterBase.BEGIN_DEF:
             result = self.__execute_all_sub_statements_of_begin_statement(statement) 
         return result
     
@@ -229,7 +229,7 @@ class ObjectDefinition:
                     out_str += self.__format_string(self.__execute_call_statement(out_stmt[i]))
                 else:   
                     out_str += self.__format_string(self.__evaluate_expression(out_stmt[i]))
-            elif len(self.local_variables) != 0 and out_stmt[i] in self.local_variables[-1]:
+            elif out_stmt[i] in self.local_variables[-1]:
                 out_str += self.__format_string(self.local_variables[-1][out_stmt[i]])
             elif out_stmt[i] in self.method_variables[-1]:
                 out_str += self.__format_string(self.method_variables[-1][out_stmt[i]])
@@ -264,8 +264,8 @@ class ObjectDefinition:
 
     def __execute_set_statement(self, statement):
 
-        if len(self.local_variables) > 0 and statement[1] not in self.local_variables[-1]:
-            if statement[1] not in self.obj_variables and statement[1] not in self.method_variables[-1]:
+        if statement[1] not in self.local_variables[-1]:
+            if (statement[1] not in self.obj_variables) and (statement[1] not in self.method_variables[-1]):
                 # ! there might be a problem with stack of super class
                 self.interpreter.error(ErrorType.NAME_ERROR, "undefined variable", statement[0].line_num)
 
@@ -275,21 +275,31 @@ class ObjectDefinition:
                 result = self.__execute_call_statement(statement[2])
             else:
                 result = self.__evaluate_expression(statement[2])
-            if name in self.method_variables[-1]:
+            if name in self.local_variables[-1]:
+                self.__type_check(self.local_variables[-1][name], result)
+                self.local_variables[-1][name] = result
+            elif name in self.method_variables[-1]:
                 self.__type_check(self.method_variables[-1][name], result)
                 self.method_variables[-1][name] = result
             elif name in self.obj_variables:
                 self.__type_check(self.obj_variables[name], result)
                 self.obj_variables[name] = result
         else:
-            if len(self.local_variables) != 0 and name in self.local_variables[-1]:
-                temp_value = Value(statement[2])
-                if temp_value.typeof() == Type.POINTER:
-                    temp_value.class_name = self.local_variables[-1][name].class_name
+            if name in self.local_variables[-1]:
+                if statement[2] in self.local_variables[-1]:
+                    temp_value = self.local_variables[-1][statement[2]]
+                elif statement[2] in self.method_variables[-1]:
+                    temp_value = self.method_variables[-1][statement[2]]
+                elif statement[2] in self.obj_variables:
+                    temp_value = self.obj_variables[statement[2]]
+                else:
+                    temp_value = Value(statement[2])
+                    if temp_value.typeof() == Type.POINTER:
+                        temp_value.class_name = self.local_variables[-1][name].class_name
                 self.__type_check(self.local_variables[-1][name], temp_value)
-                self.local_variables[-1][statement[1]] = temp_value
+                self.local_variables[-1][name] = temp_value
             elif name in self.method_variables[-1]:
-                if len(self.local_variables) != 0 and name in self.local_variables[-1]:
+                if statement[2] in self.local_variables[-1]:
                     temp_value = self.local_variables[-1][statement[2]]
                 elif statement[2] in self.method_variables[-1]:
                     temp_value = self.method_variables[-1][statement[2]]
@@ -300,13 +310,13 @@ class ObjectDefinition:
                     if temp_value.typeof() == Type.POINTER:
                         temp_value.class_name = self.method_variables[-1][name].class_name
                 self.__type_check(self.method_variables[-1][name], temp_value)
-                self.method_variables[-1][statement[1]] = temp_value
+                self.method_variables[-1][name] = temp_value
 
             elif name in self.obj_variables:
-                if len(self.local_variables) != 0 and name in self.local_variables[-1]:
-                    temp_value = self.local_variables[-1][name]
-                if statement[2] in self.method_variables[-1]:
-                     temp_value = self.method_variables[-1][statement[2]]
+                if statement[2] in self.local_variables[-1]:
+                    temp_value = self.local_variables[-1][statement[2]]
+                elif statement[2] in self.method_variables[-1]:
+                    temp_value = self.method_variables[-1][statement[2]]
                 elif statement[2] in self.obj_variables:
                     temp_value = self.obj_variables[statement[2]]
                 else:
@@ -315,16 +325,7 @@ class ObjectDefinition:
                         temp_value.class_name = self.obj_variables[name].class_name
 
                 self.__type_check(self.obj_variables[name], temp_value)
-                self.obj_variables[statement[1]] = temp_value
-
-            # elif statement[1] in self.super_object.obj_variables:
-            #     if statement[2] in self.method_variables[-1]:
-            #         temp_value = self.method_variables[-1][statement[2]]
-            #     if temp_value.typeof() == self.super_object.obj_variables[statement[1]].typeof():
-            #         self.super_object.obj_variables[statement[1]] = temp_value
-            #     else:
-            #         self.interpreter.error(ErrorType.TYPE_ERROR, 'Invalid assignment')
-
+                self.obj_variables[name] = temp_value
     def __type_check(self, ref, other_ref):
         if ref.typeof() == other_ref.typeof():
             if ref.typeof() == Type.POINTER:
@@ -395,6 +396,8 @@ class ObjectDefinition:
         if result is None:
             if return_type != Type.RETURN:
                 result = self.interpreter.default_return_val[return_type]
+            if return_type == Type.POINTER:
+                result.class_name = method.real_return_type
         elif result.typeof() == Type.RETURN and return_type != Type.RETURN:
             result = self.interpreter.default_return_val[return_type]
         elif result.typeof() != return_type:
@@ -481,6 +484,9 @@ class ObjectDefinition:
             result = self.method_variables[-1][statement[1]]
         elif self.super_object is not None and statement[1] in self.super_object.obj_variables:
             self.interpreter.error(ErrorType.NAME_ERROR, 'Cant access private field of base class')
+        elif statement[1] == 'me':
+            result = Value(self, Type.POINTER)
+            result.class_name = self.class_name
         else:
             result = Value(statement[1])
 
@@ -511,7 +517,7 @@ class ObjectDefinition:
         for j in statements:
             result = self.__run_statement(j)
             # ! some problem here
-            if not is_a_call_statement(j) and isinstance(result, Value):
+            if j[0] != InterpreterBase.CALL_DEF and isinstance(result, Value):
                 self.local_variables.pop()
                 return result
         self.local_variables.pop()
@@ -525,7 +531,7 @@ class ObjectDefinition:
         for i in statements:
             result = self.__run_statement(i)
             # ! some problem here
-            if not is_a_call_statement(i) and isinstance(result, Value):
+            if (i[0] != InterpreterBase.CALL_DEF) and isinstance(result, Value):
                 return result
         return result
     
@@ -605,37 +611,6 @@ class ObjectDefinition:
         else:
             return self.__find_class_name(base_name, self.interpreter.class_relationships[derived_class])
 
-
-def is_a_print_statement(statement):
-    return statement[0] == InterpreterBase.PRINT_DEF
-
-def is_an_input_statement(statement):
-    return (statement[0] == 'inputi') or (statement[0] == 'inputs')
-
-def is_a_set_statement(statement):
-    return statement[0] == InterpreterBase.SET_DEF
-
-def is_a_call_statement(statement):
-    return statement[0] == InterpreterBase.CALL_DEF
-
-def is_a_while_statement(statement):
-    return statement[0] == InterpreterBase.WHILE_DEF
-
-def is_an_if_statement(statement):
-    return statement[0] == InterpreterBase.IF_DEF
-
-def is_a_return_statement(statement):
-    return statement[0] == InterpreterBase.RETURN_DEF
-
-def is_a_begin_statement(statement):
-    return statement[0] == InterpreterBase.BEGIN_DEF
-
-def is_a_new_statement(statement):
-    return statement[0] == InterpreterBase.NEW_DEF
-
-def is_a_let_statement(statement):
-    return statement[0] == InterpreterBase.LET_DEF
-
 class Method:
     def __init__(self, return_type, name, parameters, statements, interpreter):
         self.interpreter = interpreter
@@ -647,14 +622,19 @@ class Method:
         self.primitive_types = {'int', 'bool', 'string'}
         self.__init_type_signature()
         self.real_return_type = return_type
+        if return_type not in self.primitive_types and return_type not in self.interpreter.all_classes:
+            if return_type != 'void':
+                self.interpreter.error(ErrorType.TYPE_ERROR, f'Type {return_type} does not exist')
 
 
     def __init_type_signature(self):
         for i in self.parameters:
             if i[0] in self.primitive_types:
                 self.type_signature.append(self.interpreter.type_match[i[0]])
-            else:
+            elif i[0] in self.interpreter.all_classes:
                 self.type_signature.append((Type.POINTER, i[0]))
+            else:
+                self.interpreter.error(ErrorType.TYPE_ERROR, f'Type {i[0]} does not exist')
 
     def get_type_signature(self):
         return self.type_signature
@@ -682,7 +662,7 @@ class Type(Enum):
 class Value:
     "value class"
     def __init__(self, value, type=None, class_name=None):
-        self.class_name = None
+        self.class_name = None # None if it's a primitive type
 
         if type == None:
             if value.isnumeric() or (value[0] == '-' and value[1:].isnumeric()):
@@ -729,75 +709,20 @@ class Value:
 def main():
     test_1 = """
     (class main
-  (field bool q true)
-  (method void foo ((int x)) (print x))
-  (method void main ()
-    (call me foo q)
-  )
-)
-
-    """.split('\n')
-
-    test_2="""
-    (class main
-  (method person foo () (return (new student)))
-  (method void main () (call me foo))
-)
-
-(class person
-(field int x 1)
-)
-
-(class student inherits person
-(field int u 1)
-)
-
-    """.split('\n')
-    test_3 = """(class person
-  (field string name "jane")
-  (method void say_something () (print name " says hi")
-  )
-)
-
-(class student inherits person
-  (method void say_something ()
-    (print "Can I have an extension?")
-  )
-)
-
-(class main
-  (field person p null)
-  (method void foo ((person p)) # foo accepts a "person" as an argument
-    (call p say_something)
-  )
-  (method void main ()
-    (begin
-      (set p (new student))  # Assigns p, which is a person object ref
-                             # to a student obj. This is polymorphism!  
-      (call me foo p)        # Passes a student object as an argument 
-                             # to foo. This is also polymorphism!
-    )
-  )
-)
-""".split('\n')
-    test_4 = """
-(class main
- (method void foo ((int x))
-     (let ((int y 5) (string z "bar"))
-        (print x)
-        (print y)
-        (print z)
-     )
- )
+ (field string x "abc")
  (method void main ()
-   (call me foo 10)
+  (begin
+   (set x "def")
+   (print x)
+   (set x "abc")
+   (print x)
+  )
  )
 )
 
 
-""".split('\n')
-
-    test_5 = """
+    """.split('\n')
+    test_4 = """
    (class main
   (field person pf null)
   (method void foo ((person p1) (student p2)) 
@@ -825,7 +750,7 @@ def main():
 
 """.split('\n')
     interpreter = Interpreter()
-    interpreter.run(test_4)
+    interpreter.run(test_1)
 
 if __name__ == '__main__':
     main()
