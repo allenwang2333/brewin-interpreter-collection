@@ -552,10 +552,12 @@ class ObjectDefinition:
                     stack.append(i)
                 elif i in self.interpreter.operators:
                     stack.append(i)
-                elif i in self.obj_variables:
-                    stack.append(self.obj_variables[i])
+                elif i in self.local_variables[-1]:
+                    stack.append(self.local_variables[-1][i])
                 elif i in self.method_variables[-1]:
                     stack.append(self.method_variables[-1][i])
+                elif i in self.obj_variables:
+                    stack.append(self.obj_variables[i])
                 else:
                     new_var = Value(i)
                     if new_var.typeof() == Type.UNDEFINED:
@@ -617,20 +619,22 @@ class Method:
         self.name = name
         self.parameters = parameters
         self.formal_parameters = []
+        self.primitive_types = {'int', 'bool', 'string'}
+        if return_type not in self.primitive_types and return_type not in self.interpreter.all_classes:
+            if return_type != 'void':
+                self.interpreter.error(ErrorType.TYPE_ERROR, f'Type {return_type} does not exist')
         for i in parameters:
             if i[1] not in self.formal_parameters:
                 self.formal_parameters.append(i[1])
             else:
                 self.interpreter.error(ErrorType.NAME_ERROR, 'duplicate formal parameters')
         self.statements = statements #! this may be a list of statements
-        self.return_type = self.interpreter.type_match[return_type]
+
         self.type_signature = []
-        self.primitive_types = {'int', 'bool', 'string'}
+
         self.__init_type_signature()
         self.real_return_type = return_type
-        if return_type not in self.primitive_types and return_type not in self.interpreter.all_classes:
-            if return_type != 'void':
-                self.interpreter.error(ErrorType.TYPE_ERROR, f'Type {return_type} does not exist')
+        self.return_type = self.interpreter.type_match[return_type]
 
 
     def __init_type_signature(self):
@@ -714,13 +718,31 @@ class Value:
 
 def main():
     test_1 = """
+(class person 
+  (field string name "jane")
+  (method void set_name ((string n)) (set name n))
+  (method string get_name () (return name))
+)
+
+(class student
+  (field int beers 3)
+  (method void set_beers ((int g)) (set beers g))
+  (method int get_beers () (return beers))
+)
+
 (class main
- (method void foo ((string a) (int a))
-  (print a b)
- )
- (method void main ()
-   (call me foo "a" 10)
- )
+(field person x null)
+  (method void main ()
+    (begin 
+      (print (== x (call me foo)))
+    )
+  )
+  
+  (method student foo () 
+    (begin 
+      (print (== (new person) x))
+    )
+  )
 )
 
     """.split('\n')
