@@ -325,6 +325,7 @@ class ObjectDefinition:
 
                 self.__type_check(self.obj_variables[name], temp_value)
                 self.obj_variables[name] = temp_value
+                
     def __type_check(self, ref, other_ref):
         if ref.typeof() == other_ref.typeof():
             if ref.typeof() == Type.POINTER:
@@ -615,6 +616,12 @@ class Method:
         self.interpreter = interpreter
         self.name = name
         self.parameters = parameters
+        self.formal_parameters = []
+        for i in parameters:
+            if i[1] not in self.formal_parameters:
+                self.formal_parameters.append(i[1])
+            else:
+                self.interpreter.error(ErrorType.NAME_ERROR, 'duplicate formal parameters')
         self.statements = statements #! this may be a list of statements
         self.return_type = self.interpreter.type_match[return_type]
         self.type_signature = []
@@ -708,11 +715,11 @@ class Value:
 def main():
     test_1 = """
 (class main
- (method void foo ((int a) (int b))
+ (method void foo ((string a) (int a))
   (print a b)
  )
  (method void main ()
-   (call me foo 5)
+   (call me foo "a" 10)
  )
 )
 
