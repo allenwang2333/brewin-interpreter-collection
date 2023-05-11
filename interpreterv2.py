@@ -31,14 +31,13 @@ class Interpreter(InterpreterBase):
     def __discover_all_classes_and_track_them(self, parsed_program):
         # find all classes and put them is all_classes
         for class_def in parsed_program:
-            print(class_def)
             if class_def[1] not in self.all_classes and class_def[0] == self.CLASS_DEF:
                 class_definition = ClassDefinition(class_def[1], class_def[2:], self)
                 self.class_relationships[class_def[1]] = class_definition.super_class
                 self.all_classes[class_def[1]] = class_definition
                 self.type_match[class_def[1]] = Type.POINTER
             else:
-                self.error(ErrorType.TYPE_ERROR, f"duplicate class name {class_def[1]} {class_def[1].line_num}")
+                self.error(ErrorType.NAME_ERROR, f"duplicate class name {class_def[1]} {class_def[1].line_num}")
             # ! check if the program has at least one class
             
     def __find_definition_for_class(self, class_name):
@@ -184,7 +183,7 @@ class ObjectDefinition:
                     if not self.__find_class_name(method_type_signature[i][1], type_signature[i][1]):
                         flag = False
                 else:
-                    if method_type_signature[i] != type_signature[1]:
+                    if method_type_signature[i] != type_signature[i]:
                         flag = False
             if flag:
                 return self.obj_methods[method_name], self
@@ -708,18 +707,14 @@ class Value:
 
 def main():
     test_1 = """
-    (class main
- (field string x "abc")
+(class main
+ (method void foo ((int a) (int b))
+  (print a b)
+ )
  (method void main ()
-  (begin
-   (set x "def")
-   (print x)
-   (set x "abc")
-   (print x)
-  )
+   (call me foo 5)
  )
 )
-
 
     """.split('\n')
     test_4 = """
