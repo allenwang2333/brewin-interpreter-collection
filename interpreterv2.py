@@ -163,6 +163,7 @@ class ObjectDefinition:
             self.interpreter.error(ErrorType.TYPE_ERROR, "invalid type")
         if temp_value.typeof() == Type.POINTER:
             temp_value.class_name = field[1]
+            temp_value.original_class_name = field[1]
         self.obj_variables[field[2]] = temp_value
    # Interpret the specified method using the provided parameters    
     def run_method(self, method_name, parameters={}, type_signature=[]):
@@ -230,7 +231,8 @@ class ObjectDefinition:
                 else:   
                     out_str += self.__format_string(self.__evaluate_expression(out_stmt[i]))
             elif self.__find_local_variables(out_stmt[i]) is not None:
-                out_str += self.__format_string(self.local_variables[self.__find_local_variables(out_stmt[i])][out_stmt[i]])
+                index = self.__find_local_variables(out_stmt[i])
+                out_str += self.__format_string(self.local_variables[index][out_stmt[i]])
             elif out_stmt[i] in self.method_variables[-1]:
                 out_str += self.__format_string(self.method_variables[-1][out_stmt[i]])
             elif out_stmt[i] in self.obj_variables:
@@ -290,16 +292,25 @@ class ObjectDefinition:
                 self.__type_check(self.method_variables[-1][name], result)
                 self.method_variables[-1][name] = result
             elif name in self.obj_variables:
-                self.__type_check(self.obj_variables[name], result)
+                #self.__type_check(self.obj_variables[name], result)
+                if self.obj_variables[name].typeof() == result.typeof():
+                    if self.obj_variables[name].typeof() == Type.POINTER:
+                        if not self.__find_class_name(self.obj_variables[name].class_name, result.class_name):
+                            if not self.__find_class_name(self.obj_variables[name].original_class_name, result.class_name):
+                                self.interpreter.error(ErrorType.TYPE_ERROR, 'Assigning incompatible type')
+                else:
+                    self.interpreter.error(ErrorType.TYPE_ERROR, 'Assigning incompatible type')
+                orig_class_name = self.obj_variables[name].original_class_name
                 self.obj_variables[name] = result
+                self.obj_variables[name].original_class_name = orig_class_name
             else:
                 self.interpreter.error(ErrorType.NAME_ERROR, 'invalid variable name')
         else:
             if self.__find_local_variables(name) is not None:
                 index = self.__find_local_variables(name)
                 if self.__find_local_variables(statement[2]) is not None:
-                    index = self.__find_local_variables(statement[2])
-                    temp_value = self.local_variables[index][statement[2]]
+                    second_index = self.__find_local_variables(statement[2])
+                    temp_value = self.local_variables[second_index][statement[2]]
                 elif statement[2] in self.method_variables[-1]:
                     temp_value = self.method_variables[-1][statement[2]]
                 elif statement[2] in self.obj_variables:
@@ -431,6 +442,8 @@ class ObjectDefinition:
                 result = Value(None, Type.RETURN)
         elif result.typeof() == Type.RETURN and return_type != Type.RETURN:
             result = self.interpreter.default_return_val[return_type]
+            if return_type == Type.POINTER:
+                result.class_name = method.real_return_type
         elif result.typeof() != return_type:
             self.interpreter.error(ErrorType.TYPE_ERROR, 'invalid return type')
         elif result.typeof() == Type.POINTER and return_type == Type.POINTER:
@@ -544,13 +557,13 @@ class ObjectDefinition:
             result = self.method_variables[-1][statement[1]]
         elif statement[1] in self.obj_variables:
             result = self.obj_variables[statement[1]]
-        elif self.super_object is not None and statement[1] in self.super_object.obj_variables:
-            self.interpreter.error(ErrorType.NAME_ERROR, 'Cant access private field of base class')
         elif statement[1] == 'me':
             result = Value(self.original_calling_object, Type.POINTER)
             result.class_name = self.class_name
         else:
             result = Value(statement[1])
+            if result.typeof() == Type.UNDEFINED:
+                self.interpreter.error(ErrorType.NAME_ERROR, "Undefined variable")
         return result
 
     def __execute_let_statements(self, statement):
@@ -662,6 +675,7 @@ class ObjectDefinition:
                         obj = class_def.instantiate_object()
                         temp_value = Value(obj, Type.POINTER)
                         temp_value.class_name = a
+                        temp_value.original_class_name = a
                         return temp_value
                 else:
                     self.interpreter.error(ErrorType.TYPE_ERROR, "operator error", statement[0].line_num)
@@ -738,6 +752,7 @@ class Value:
     "value class"
     def __init__(self, value, type=None, class_name=None):
         self.class_name = None # None if it's a primitive type
+        self.original_class_name = None
 
         if type == None:
             if value.isnumeric() or (value[0] == '-' and value[1:].isnumeric()):
@@ -772,6 +787,7 @@ class Value:
                 self.type = Type.POINTER
                 self.value = value
                 self.class_name = class_name
+                self.original_class_name = class_name
             if type == Type.RETURN:
                 self.type = Type.RETURN
                 self.value = value
@@ -794,7 +810,7 @@ def main():
 
 (class student inherits person
   (method void b ()
-    (print "student")
+    (call super b)
   )
 )
 
@@ -809,8 +825,33 @@ def main():
 )
 
 """.split('\n')
+
+    test_5 = """
+(class person
+  (field string name "jane")
+  (method void say_something () (print name " says hi"))
+)
+
+(class student inherits person
+   (method void say_something ()
+     (print "Can I have an extension")
+   )
+)
+
+(class main
+  (field person p null)
+  (field student y null)
+  (method void main ()
+    (begin
+      (set p (new student))
+    (set p (new person))
+    )
+  )
+)
+
+    """.split('\n')
     interpreter = Interpreter()
-    interpreter.run(test_4)
+    interpreter.run(test_5)
 
 if __name__ == '__main__':
     main()
