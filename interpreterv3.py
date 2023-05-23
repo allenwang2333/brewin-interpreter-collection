@@ -163,7 +163,7 @@ class ClassDefinition:
                 for j in range(len(self.parametrized_types)):
                     if lst[i] == self.parametrized_types[j]:
                         lst[i] = param[j]
-                    elif '@' in lst[i]:
+                    elif lst[i].split('@')[0] in self.interpreter.all_template_classes:
                         lst[i] = lst[i].replace(self.parametrized_types[j], param[j])
 
 class ObjectDefinition:
@@ -186,7 +186,7 @@ class ObjectDefinition:
     def add_field(self, field):
         if field[2] in self.obj_variables:
             self.interpreter.error(ErrorType.NAME_ERROR, "duplicate field")
-        if '@' in field[1]:
+        if field[1].split('@')[0] in self.interpreter.all_template_classes:
             self.__check_template_class(field[1])
         if len(field) == 4:
             temp_value = Value(field[3])
@@ -218,7 +218,7 @@ class ObjectDefinition:
             method_type_signature = self.obj_methods[method_name].get_type_signature()
             flag = True
             for i in range(len(method_type_signature)):
-                if isinstance(method_type_signature[i], tuple):
+                if isinstance(method_type_signature[i], tuple) and isinstance(type_signature[i], tuple):
                     if not self.__find_class_name(method_type_signature[i][1], type_signature[i][1]):
                         flag = False
                 else:
@@ -695,7 +695,7 @@ class ObjectDefinition:
             if variables[i][1] in let_variables:
                 self.interpreter.error(ErrorType.NAME_ERROR, 'Duplicate definition of local variables')
             else:
-                if '@' in variables[i][0]:
+                if variables[i][0].split('@')[0] in self.interpreter.all_template_classes:
                     self.__check_template_class(variables[i][0])
                 if len(variables[i]) == 3:
                     temp_value = Value(variables[i][2])
@@ -796,7 +796,7 @@ class ObjectDefinition:
                         stack.append(self.exception)
                 elif i in self.interpreter.all_classes:
                     stack.append(i)
-                elif '@' in i:
+                elif i.split('@')[0] in self.interpreter.all_template_classes:
                     self.__check_template_class(i)
                     stack.append(i)
                 elif i in self.interpreter.operators:
@@ -847,7 +847,7 @@ class ObjectDefinition:
                         temp_value.class_name = a
                         temp_value.original_class_name = a
                         return temp_value
-                    elif '@' in a and (a.split('@')[0]) in self.interpreter.all_template_classes:
+                    elif (a.split('@')[0]) in self.interpreter.all_template_classes:
                         param = a.split('@')
                         class_def = self.interpreter.all_template_classes[param[0]]
                         obj = class_def.instantiate_object(param[1:])
@@ -897,8 +897,7 @@ class Method:
 
         self.__init_type_signature()
         self.real_return_type = return_type
-        if '@' not in return_type:
-            self.return_type = self.interpreter.type_match[return_type]
+        self.return_type = self.interpreter.type_match[return_type]
 
     def __init_type_signature(self):
         for i in self.parameters:
@@ -1015,11 +1014,35 @@ def main():
 
     """.split('\n')
     test_2 = """
+    (tclass Foo (field_type)
+  (method void chatter ((field_type x)) 
+    (call x quack)         # line A
+  )
+  (method bool compare_to_5 ((field_type x))
+    (return (== x 5))
+  )
+)
+(class Duck
+ (method void quack () (print "quack"))
+)
+(class main
+  (field Foo@Duck t1)
+  (field Foo@int t2)
+  (method void main () 
+    (begin
+       (set t1 (new Foo@Duck))	# works fine
+       (set t2 (new Foo@int))		# works fine
 
+       (call t1 chatter (new Duck))	# works fine - ducks can talk
+       (print (call t2 compare_to_5 5) ) 	# works fine - ints can be compared
+       (call t1 chatter 10)  # generates a name error on line A (not a type error)
+    )
+  )
+)
 
     """.split('\n')
     interpreter = Interpreter()
-    interpreter.run(test_1)
+    interpreter.run(test_2)
 
 
 if __name__ == '__main__':
