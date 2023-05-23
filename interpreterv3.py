@@ -1,6 +1,9 @@
+import copy
+
 from intbase import InterpreterBase, ErrorType
 from bparser import BParser
 from enum import Enum
+from copy import deepcopy
 
 
 class Interpreter(InterpreterBase):
@@ -9,6 +12,7 @@ class Interpreter(InterpreterBase):
     def __init__(self, console_output=True, inp=None, trace_output=False):
         super().__init__(console_output, inp)  # call InterpreterBase’s constructor
         self.all_classes = {}  # dict: {key=class_name, value = class description}
+        self.all_template_classes = {} # dict: {key=template_class_name, value = template_class_description}
         self.operations = {}
         self.operators = {'+', '-', '*', '/', '%', '==', '>=', '<=', '!=', '>', '<', '&', '|', '!'}
         self.type_match = {}
@@ -37,6 +41,10 @@ class Interpreter(InterpreterBase):
                 self.class_relationships[class_def[1]] = class_definition.super_class
                 self.all_classes[class_def[1]] = class_definition
                 self.type_match[class_def[1]] = Type.POINTER
+            elif class_def[0] == self.TEMPLATE_CLASS_DEF and class_def[1] not in self.all_template_classes:
+                class_definition = ClassDefinition(class_def[1], class_def[3:], self)
+                class_definition.parametrized_types = class_def[2]
+                self.all_template_classes[class_def[1]] = class_definition
             else:
                 self.error(ErrorType.TYPE_ERROR, f"duplicate class name {class_def[1]} {class_def[1].line_num}")
             # ! check if the program has at least one class
@@ -98,7 +106,6 @@ class Interpreter(InterpreterBase):
         self.default_return_val[Type.STRING] = Value('', Type.STRING)
         self.default_return_val[Type.POINTER] = Value(None, Type.POINTER)
 
-
 class ClassDefinition:
     def __init__(self, name, class_definition, interpreter):
         self.my_name = name
@@ -108,6 +115,7 @@ class ClassDefinition:
         self.interpreter = interpreter
         self.super_class = None
         self.exception = None
+        self.parametrized_types = None
         if len(self.my_class_definition) >= 2:
             if self.my_class_definition[0] == 'inherits':
                 self.super_class = self.my_class_definition[1]
@@ -120,7 +128,7 @@ class ClassDefinition:
                 self.interpreter.error(ErrorType.NAME_ERROR, "duplicate names")
 
     # uses the definition of a class to create and return an instance of it
-    def instantiate_object(self):
+    def instantiate_object(self, param=None):
         obj = ObjectDefinition(self.interpreter)
         obj.class_name = self.my_name
         # ! assume a class cannot inherit itself
@@ -131,14 +139,32 @@ class ClassDefinition:
             else:
                 self.interpreter.error(ErrorType.NAME_ERROR, 'Base class not found')
 
+
         for method in self.my_methods:
+            method = deepcopy(method)
+            if self.parametrized_types is not None:
+                self.__search_and_replace(method, param)
             obj.add_method(method)
 
         for field in self.my_fields:
+            field = deepcopy(field)
+            if self.parametrized_types is not None:
+                self.__search_and_replace(field, param)
             obj.add_field(field)
 
         return obj
-
+    def __search_and_replace(self, lst, param):
+        if len(lst) == 0:
+            return
+        for i in range(len(lst)):
+            if isinstance(lst[i], list):
+                self.__search_and_replace(lst[i], param)
+            else:
+                for j in range(len(self.parametrized_types)):
+                    if lst[i] == self.parametrized_types[j]:
+                        lst[i] = param[j]
+                    elif '@' in lst[i]:
+                        lst[i] = lst[i].replace(self.parametrized_types[j], param[j])
 
 class ObjectDefinition:
     def __init__(self, interpreter):
@@ -160,12 +186,14 @@ class ObjectDefinition:
     def add_field(self, field):
         if field[2] in self.obj_variables:
             self.interpreter.error(ErrorType.NAME_ERROR, "duplicate field")
-
+        if '@' in field[1]:
+            self.__check_template_class(field[1])
         if len(field) == 4:
             temp_value = Value(field[3])
         else:
             temp_type = self.interpreter.type_match[field[1]]
-            temp_value = self.interpreter.default_return_val[temp_type]
+            val = self.interpreter.default_return_val[temp_type].val()
+            temp_value = Value(val, temp_type)
         if temp_value.typeof() != self.interpreter.type_match[field[1]]:
             self.interpreter.error(ErrorType.TYPE_ERROR, "invalid type")
         if temp_value.typeof() == Type.POINTER:
@@ -503,13 +531,17 @@ class ObjectDefinition:
             return result
         if result is None:
             if return_type != Type.RETURN:
-                result = self.interpreter.default_return_val[return_type]
+                result_val = self.interpreter.default_return_val[return_type].val()
+                result_type = self.interpreter.default_return_val[return_type].typeof()
+                result = Value(result_val, result_type)
             if return_type == Type.POINTER:
                 result.class_name = method.real_return_type
             if return_type == Type.RETURN:
                 result = Value(None, Type.RETURN)
         elif result.typeof() == Type.RETURN and return_type != Type.RETURN:
-            result = self.interpreter.default_return_val[return_type]
+            result_val = self.interpreter.default_return_val[return_type].val()
+            result_type = self.interpreter.default_return_val[return_type].typeof()
+            result = Value(result_val, result_type)
             if return_type == Type.POINTER:
                 result.class_name = method.real_return_type
         elif result.typeof() != return_type:
@@ -643,6 +675,18 @@ class ObjectDefinition:
                 self.interpreter.error(ErrorType.NAME_ERROR, "Undefined variable")
         return result
 
+    def __check_template_class(self, name):
+        param_type = name.split('@')
+        if param_type[0] not in self.interpreter.all_template_classes:
+            self.interpreter.error(ErrorType.TYPE_ERROR, 'Template class does not exist')
+        if len(param_type) - 1 != len(self.interpreter.all_template_classes[param_type[0]].parametrized_types):
+            self.interpreter.error(ErrorType.TYPE_ERROR, 'Invalid parametrized types')
+        for j in param_type[1:]:
+            if j not in self.interpreter.type_match:
+                self.interpreter.error(ErrorType.TYPE_ERROR, 'Parametrized type does not exist')
+        if name not in self.interpreter.type_match:
+            self.interpreter.type_match[name] = Type.POINTER
+
     def __execute_let_statements(self, statement):
         variables = statement[1]
         statements = statement[2:]
@@ -651,11 +695,14 @@ class ObjectDefinition:
             if variables[i][1] in let_variables:
                 self.interpreter.error(ErrorType.NAME_ERROR, 'Duplicate definition of local variables')
             else:
+                if '@' in variables[i][0]:
+                    self.__check_template_class(variables[i][0])
                 if len(variables[i]) == 3:
                     temp_value = Value(variables[i][2])
                 else:
                     temp_type = self.interpreter.type_match[variables[i][0]]
-                    temp_value = self.interpreter.default_return_val[temp_type]
+                    val = self.interpreter.default_return_val[temp_type].val()
+                    temp_value = Value(val, temp_type)
                 if temp_value.typeof() == Type.POINTER:
                     temp_value.class_name = variables[i][0]
 
@@ -749,6 +796,9 @@ class ObjectDefinition:
                         stack.append(self.exception)
                 elif i in self.interpreter.all_classes:
                     stack.append(i)
+                elif '@' in i:
+                    self.__check_template_class(i)
+                    stack.append(i)
                 elif i in self.interpreter.operators:
                     stack.append(i)
                 elif self.__find_local_variables(i) is not None:
@@ -790,15 +840,23 @@ class ObjectDefinition:
                     if operator not in self.interpreter.operations[a.typeof()]:
                         self.interpreter.error(ErrorType.TYPE_ERROR, "incompatible operand")
                 elif operator == 'new':
-                    if a not in self.interpreter.all_classes:
-                        self.interpreter.error(ErrorType.TYPE_ERROR, "undefined class")
-                    else:
+                    if a in self.interpreter.all_classes:
                         class_def = self.interpreter.all_classes[a]
                         obj = class_def.instantiate_object()
                         temp_value = Value(obj, Type.POINTER)
                         temp_value.class_name = a
                         temp_value.original_class_name = a
                         return temp_value
+                    elif '@' in a and (a.split('@')[0]) in self.interpreter.all_template_classes:
+                        param = a.split('@')
+                        class_def = self.interpreter.all_template_classes[param[0]]
+                        obj = class_def.instantiate_object(param[1:])
+                        temp_value = Value(obj, Type.POINTER)
+                        temp_value.class_name = a
+                        return temp_value
+                    else:
+                        self.interpreter.error(ErrorType.TYPE_ERROR, "Undefined class")
+
                 else:
                     self.interpreter.error(ErrorType.TYPE_ERROR, "operator error", statement[0].line_num)
                 return self.interpreter.operations[a.typeof()][operator](a)
@@ -809,6 +867,8 @@ class ObjectDefinition:
     def __find_class_name(self, base_name, derived_class):
         if base_name == derived_class:
             return True
+        elif derived_class not in self.interpreter.class_relationships:
+            return False
         elif self.interpreter.class_relationships[derived_class] is None:
             return False
         else:
@@ -824,7 +884,8 @@ class Method:
         self.primitive_types = {'int', 'bool', 'string'}
         if return_type not in self.primitive_types and return_type not in self.interpreter.all_classes:
             if return_type != 'void':
-                self.interpreter.error(ErrorType.TYPE_ERROR, f'Type {return_type} does not exist')
+                if return_type.split('@')[0] not in self.interpreter.all_template_classes:
+                    self.interpreter.error(ErrorType.TYPE_ERROR, f'Type {return_type} does not exist')
         for i in parameters:
             if i[1] not in self.formal_parameters:
                 self.formal_parameters.append(i[1])
@@ -836,13 +897,16 @@ class Method:
 
         self.__init_type_signature()
         self.real_return_type = return_type
-        self.return_type = self.interpreter.type_match[return_type]
+        if '@' not in return_type:
+            self.return_type = self.interpreter.type_match[return_type]
 
     def __init_type_signature(self):
         for i in self.parameters:
             if i[0] in self.primitive_types:
                 self.type_signature.append(self.interpreter.type_match[i[0]])
             elif i[0] in self.interpreter.all_classes:
+                self.type_signature.append((Type.POINTER, i[0]))
+            elif i[0].split('@')[0] in self.interpreter.all_template_classes:
                 self.type_signature.append((Type.POINTER, i[0]))
             else:
                 self.interpreter.error(ErrorType.TYPE_ERROR, f'Type {i[0]} does not exist')
@@ -930,45 +994,32 @@ class Value:
 
 def main():
     test_1 = """
-    (class main
-    (field string a)
-  (method void bar ((string b))
-    (print b)
-  )
-  (method string foo () 
-    (begin
-      (try 
-        (throw "hello")
-        (begin
-          (call me bar exception)
-          (print (== exception "hello"))
-          (print (== exception "hh"))
-          (print a)
-          (set a exception)
-          (print a)
-          (return exception)
-        )
-      )
-    )
-  )
-  (method void main ()
-    (begin
-      (print (call me foo))
+    (tclass node (field_type)
+  (field node@field_type next null)
+  (field field_type value)
+  (method void set_val ((field_type v)) (set value v))
+  (method field_type get_val () (return value))
+  (method void set_next((node@field_type n)) (set next n))
+  (method node@field_type get_next() (return next))
+)
+
+(class main
+  (method void main () 
+    (let ((node@int x null))
+      (set x (new node@int))
+      (call x set_val 5)
+      (print (call x get_val))
     )
   )
 )
+
     """.split('\n')
     test_2 = """
-(class main
- (method void main ()
-  (print blah)
- )
-)
 
 
     """.split('\n')
     interpreter = Interpreter()
-    interpreter.run(test_2)
+    interpreter.run(test_1)
 
 
 if __name__ == '__main__':
