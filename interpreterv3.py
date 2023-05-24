@@ -1,5 +1,3 @@
-import copy
-
 from intbase import InterpreterBase, ErrorType
 from bparser import BParser
 from enum import Enum
@@ -8,7 +6,6 @@ from copy import deepcopy
 
 class Interpreter(InterpreterBase):
     """Interpreter Class"""
-
     def __init__(self, console_output=True, inp=None, trace_output=False):
         super().__init__(console_output, inp)  # call InterpreterBase’s constructor
         self.all_classes = {}  # dict: {key=class_name, value = class description}
@@ -36,12 +33,12 @@ class Interpreter(InterpreterBase):
     def __discover_all_classes_and_track_them(self, parsed_program):
         # find all classes and put them is all_classes
         for class_def in parsed_program:
-            if class_def[1] not in self.all_classes and class_def[0] == self.CLASS_DEF:
+            if class_def[1] not in self.all_classes and class_def[0] == InterpreterBase.CLASS_DEF:
                 class_definition = ClassDefinition(class_def[1], class_def[2:], self)
                 self.class_relationships[class_def[1]] = class_definition.super_class
                 self.all_classes[class_def[1]] = class_definition
                 self.type_match[class_def[1]] = Type.POINTER
-            elif class_def[0] == self.TEMPLATE_CLASS_DEF and class_def[1] not in self.all_template_classes:
+            elif class_def[0] == InterpreterBase.TEMPLATE_CLASS_DEF and class_def[1] not in self.all_template_classes:
                 class_definition = ClassDefinition(class_def[1], class_def[3:], self)
                 class_definition.parametrized_types = class_def[2]
                 self.all_template_classes[class_def[1]] = class_definition
@@ -139,18 +136,17 @@ class ClassDefinition:
             else:
                 self.interpreter.error(ErrorType.NAME_ERROR, 'Base class not found')
 
-
-        for method in self.my_methods:
-            method = deepcopy(method)
-            if self.parametrized_types is not None:
-                self.__search_and_replace(method, param)
-            obj.add_method(method)
-
         for field in self.my_fields:
-            field = deepcopy(field)
             if self.parametrized_types is not None:
+                field = deepcopy(field)
                 self.__search_and_replace(field, param)
             obj.add_field(field)
+
+        for method in self.my_methods:
+            if self.parametrized_types is not None:
+                method = deepcopy(method)
+                self.__search_and_replace(method, param)
+            obj.add_method(method)
 
         return obj
     def __search_and_replace(self, lst, param):
@@ -322,7 +318,7 @@ class ObjectDefinition:
         if self.__find_local_variables(statement[1]) is None:
             if (statement[1] not in self.obj_variables) and (statement[1] not in self.method_variables[-1]):
                 # ! there might be a problem with stack of super class
-                    if statement[1] != 'exception':
+                    if statement[1] != InterpreterBase.EXCEPTION_VARIABLE_DEF:
                         self.interpreter.error(ErrorType.NAME_ERROR, "undefined variable", statement[0].line_num)
 
         name = statement[1]
@@ -333,7 +329,7 @@ class ObjectDefinition:
                 result = self.__evaluate_expression(statement[2])
             if result is not None and result.typeof() == Type.ERROR:
                 return result
-            if name == 'exception':
+            if name == InterpreterBase.EXCEPTION_VARIABLE_DEF:
                 if self.exception is None:
                     self.interpreter.error(ErrorType.NAME_ERROR, 'Undefined exception')
                 self.__type_check(self.exception, result)
@@ -361,10 +357,10 @@ class ObjectDefinition:
             else:
                 self.interpreter.error(ErrorType.NAME_ERROR, 'invalid variable name')
         else:
-            if name == 'exception':
+            if name == InterpreterBase.EXCEPTION_VARIABLE_DEF:
                 if self.exception is None:
                     self.interpreter.error(ErrorType.NAME_ERROR, 'Undefined exception')
-                if statement[2] == 'exception':
+                if statement[2] == InterpreterBase.EXCEPTION_VARIABLE_DEF:
                     temp_value = self.exception
                 elif self.__find_local_variables(statement[2]) is not None:
                     index = self.__find_local_variables(statement[2])
@@ -520,6 +516,8 @@ class ObjectDefinition:
                 if not self.__find_class_name(param_names[j][0], temp_list[j].class_name):
                     # test whether the class has such base class name
                     self.interpreter.error(ErrorType.TYPE_ERROR, 'Passing invalid class')
+                if temp_list[j].val() is None and temp_list[j].class_name is None:
+                    temp_list[j].class_name = param_names[j][0]
             local_variables[param_names[j][1]] = temp_list[j]
 
         calling_obj.original_calling_object = obj
@@ -867,6 +865,8 @@ class ObjectDefinition:
     def __find_class_name(self, base_name, derived_class):
         if base_name == derived_class:
             return True
+        elif derived_class is None:
+            return True
         elif derived_class not in self.interpreter.class_relationships:
             return False
         elif self.interpreter.class_relationships[derived_class] is None:
@@ -874,6 +874,8 @@ class ObjectDefinition:
         else:
             return self.__find_class_name(base_name, self.interpreter.class_relationships[derived_class])
 
+    def check_template_class(self, name):
+        self.__check_template_class(name)
 
 class Method:
     def __init__(self, return_type, name, parameters, statements, interpreter):
@@ -886,6 +888,8 @@ class Method:
             if return_type != 'void':
                 if return_type.split('@')[0] not in self.interpreter.all_template_classes:
                     self.interpreter.error(ErrorType.TYPE_ERROR, f'Type {return_type} does not exist')
+                else:
+                    ObjectDefinition(interpreter).check_template_class(return_type)
         for i in parameters:
             if i[1] not in self.formal_parameters:
                 self.formal_parameters.append(i[1])
@@ -1041,8 +1045,52 @@ def main():
 )
 
     """.split('\n')
+
+    test_3 = """
+(tclass MyTemplatedClass (shape_type animal_type)
+  (field shape_type some_shape)
+  (field animal_type some_animal)
+  	  (method void act ((shape_type s) (animal_type a))
+          (begin
+            (print "Shape's area: " (call s get_area))
+            (print "Animal's name: " (call a get_name))
+          )
+        ) 
+      )
+      
+(class main
+  (field MyTemplatedClass@string@int a)
+  (field MyTemplatedClass@int@string b)
+  (method void main ()
+    (begin 
+      (set b (call me bar null))
+    )
+  )
+  (method MyTemplatedClass@int@string bar ((MyTemplatedClass@string@bool x))
+    (begin
+    (set x null)
+    (return (new MyTemplatedClass@int@string))
+    )
+  )
+)
+""".split('\n')
+    test_4 = """
+    (class Person 
+        (field int x 10)
+    )
+    (class main
+        (method void main ()
+            (begin 
+                (call me foo null)
+            )
+        )
+        (method void foo ((Person x))
+        (print "aaa")
+        )
+    )
+    """.split('\n')
     interpreter = Interpreter()
-    interpreter.run(test_2)
+    interpreter.run(test_3)
 
 
 if __name__ == '__main__':
