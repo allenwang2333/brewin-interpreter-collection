@@ -866,6 +866,7 @@ class ObjectDefinition:
                         param = a.split('@')
                         class_def = self.interpreter.all_template_classes[param[0]]
                         obj = class_def.instantiate_object(param[1:])
+                        obj.class_name = a
                         temp_value = Value(obj, Type.POINTER)
                         temp_value.class_name = a
                         return temp_value
@@ -1092,26 +1093,24 @@ def main():
 )
 """.split('\n')
     test_4 = """
-(class main
- (field int x 0)
- (method void main ()
-  (while (< x 2)
-    (begin 
-     (print x)
-     (set x (+ x 1))
-   )
-  )
-  (while false 
-   (print x)
-  )
-  (while (< x 0)
-   (print x)
-  )
- )
+(tclass node (field_type)
+  (field node@field_type next null)
+  (field field_type value)
+  (method void set_val ((field_type v)) (set value v))
+  (method field_type get_val () (return value))
+  (method void set_next((node@field_type n)) (set next n))
+  (method node@field_type get_next() (return next))
 )
 
-
-
+(class main
+  (method void main () 
+    (let ((node@int x null))
+      (set x (new node@int))
+      (call x set_val 5)
+      (print (call x get_val))
+    )
+  )
+)
     """.split('\n')
     interpreter = Interpreter()
     interpreter.run(test_4)
