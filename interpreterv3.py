@@ -15,6 +15,7 @@ class Interpreter(InterpreterBase):
         self.type_match = {}
         self.default_return_val = {}
         self.class_relationships = {}
+        self.exception = None
 
     def run(self, program_source):
         # first parse the program
@@ -111,7 +112,6 @@ class ClassDefinition:
         self.my_fields = []  # ! can be optimized by hash table
         self.interpreter = interpreter
         self.super_class = None
-        self.exception = None
         self.parametrized_types = None
         if len(self.my_class_definition) >= 2:
             if self.my_class_definition[0] == 'inherits':
@@ -282,8 +282,8 @@ class ObjectDefinition:
                 out_str += self.__format_string(self.obj_variables[out_stmt[i]])
             elif Value(out_stmt[i]).typeof() is not Type.UNDEFINED:
                 out_str += self.__format_string(Value(out_stmt[i]))
-            elif out_stmt[i] == InterpreterBase.EXCEPTION_VARIABLE_DEF and self.exception is not None:
-                out_str += self.__format_string(self.exception)
+            elif out_stmt[i] == InterpreterBase.EXCEPTION_VARIABLE_DEF and self.interpreter.exception is not None:
+                out_str += self.__format_string(self.interpreter.exception)
             else:
                 self.interpreter.error(ErrorType.NAME_ERROR, "undefined variable", statement[0].line_num)
         self.interpreter.output(out_str)
@@ -333,10 +333,10 @@ class ObjectDefinition:
             if result is not None and result.typeof() == Type.ERROR:
                 return result
             if name == InterpreterBase.EXCEPTION_VARIABLE_DEF:
-                if self.exception is None:
+                if self.interpreter.exception is None:
                     self.interpreter.error(ErrorType.NAME_ERROR, 'Undefined exception')
-                self.__type_check(self.exception, result)
-                self.exception = result
+                self.__type_check(self.interpreter.exception, result)
+                self.interpreter.exception = result
             elif self.__find_local_variables(name) is not None:
                 index = self.__find_local_variables(name)
                 self.__type_check(self.local_variables[index][name], result)
@@ -361,10 +361,10 @@ class ObjectDefinition:
                 self.interpreter.error(ErrorType.NAME_ERROR, 'invalid variable name')
         else:
             if name == InterpreterBase.EXCEPTION_VARIABLE_DEF:
-                if self.exception is None:
+                if self.interpreter.exception is None:
                     self.interpreter.error(ErrorType.NAME_ERROR, 'Undefined exception')
                 if statement[2] == InterpreterBase.EXCEPTION_VARIABLE_DEF:
-                    temp_value = self.exception
+                    temp_value = self.interpreter.exception
                 elif self.__find_local_variables(statement[2]) is not None:
                     index = self.__find_local_variables(statement[2])
                     temp_value = self.local_variables[index][statement[2]]
@@ -374,15 +374,15 @@ class ObjectDefinition:
                     temp_value = self.obj_variables[statement[2]]
                 else:
                     temp_value = Value(statement[2])
-                self.__type_check(self.exception, temp_value)
-                self.exception = temp_value
+                self.__type_check(self.interpreter.exception, temp_value)
+                self.interpreter.exception = temp_value
             elif self.__find_local_variables(name) is not None:
                 index = self.__find_local_variables(name)
                 if statement[2] == 'exception':
-                    if self.exception is None:
+                    if self.interpreter.exception is None:
                         self.interpreter.error(ErrorType.NAME_ERROR, 'Undefined exception')
                     else:
-                        temp_value = self.exception
+                        temp_value = self.interpreter.exception
                 elif self.__find_local_variables(statement[2]) is not None:
                     second_index = self.__find_local_variables(statement[2])
                     temp_value = self.local_variables[second_index][statement[2]]
@@ -398,10 +398,10 @@ class ObjectDefinition:
                 self.local_variables[index][name] = temp_value
             elif name in self.method_variables[-1]:
                 if statement[2] == 'exception':
-                    if self.exception is None:
+                    if self.interpreter.exception is None:
                         self.interpreter.error(ErrorType.NAME_ERROR, 'Undefined exception')
                     else:
-                        temp_value = self.exception
+                        temp_value = self.interpreter.exception
                 elif self.__find_local_variables(statement[2]) is not None:
                     index = self.__find_local_variables(statement[2])
                     temp_value = self.local_variables[index][statement[2]]
@@ -418,10 +418,10 @@ class ObjectDefinition:
 
             elif name in self.obj_variables:
                 if statement[2] == 'exception':
-                    if self.exception is None:
+                    if self.interpreter.exception is None:
                         self.interpreter.error(ErrorType.NAME_ERROR, 'Undefined exception')
                     else:
-                        temp_value = self.exception
+                        temp_value = self.interpreter.exception
                 elif self.__find_local_variables(statement[2]) is not None:
                     index = self.__find_local_variables(statement[2])
                     temp_value = self.local_variables[index][statement[2]]
@@ -493,8 +493,8 @@ class ObjectDefinition:
                 if temp_value is not None and temp_value.typeof() == Type.ERROR:
                     return temp_value
             elif param_values[i] == InterpreterBase.EXCEPTION_VARIABLE_DEF:
-                if self.exception is not None:
-                    temp_value = self.exception
+                if self.interpreter.exception is not None:
+                    temp_value = self.interpreter.exception
                 else:
                     self.interpreter.error(ErrorType.NAME_ERROR, 'Exception undefined')
             elif self.__find_local_variables(param_values[i]) is not None:
@@ -673,8 +673,8 @@ class ObjectDefinition:
             result = Value(self.original_calling_object, Type.POINTER)
             result.class_name = self.class_name
         elif statement[1] == 'exception':
-            if self.exception is not None:
-                return self.exception
+            if self.interpreter.exception is not None:
+                return self.interpreter.exception
             else:
                 self.interpreter.error(ErrorType.NAME_ERROR, 'Undefined exception')
         else:
@@ -724,26 +724,22 @@ class ObjectDefinition:
         self.local_variables.append(let_variables)
         for j in statements:
             result = self.__run_statement(j)
-            # ! some problem here
-            # if result is not None and result.typeof() == Type.ERROR:
-            #     self.local_variables.pop()
-            #     return result
+            if isinstance(result, Value) and result.typeof() == Type.ERROR:
+                self.local_variables.pop()
+                return result
             if j[0] != InterpreterBase.CALL_DEF and isinstance(result, Value):
                 self.local_variables.pop()
                 return result
-            if (j[0] == InterpreterBase.CALL_DEF) and isinstance(result, Value):
-                if result.typeof() == Type.ERROR:
-                    self.local_variables.pop()
-                    return result
+
         self.local_variables.pop()
         return result
 
     def __execute_try_statement(self, statement):
         result = self.__run_statement(statement[1])
         if result is not None and result.typeof() == Type.ERROR:
-            self.exception = result.val()
+            self.interpreter.exception = result.val()
             result = self.__run_statement(statement[2])
-            self.exception = None
+            self.interpreter.exception = None
             return result
 
     def __execute_all_sub_statements_of_begin_statement(self, statement):
@@ -751,37 +747,39 @@ class ObjectDefinition:
         result = None
         for i in statements:
             result = self.__run_statement(i)
-            # ! some problem here
-            # if isinstance(result, Value) and result.typeof() == Type.ERROR:
-            #     return result
+            if isinstance(result, Value) and result.typeof() == Type.ERROR:
+                return result
             if (i[0] != InterpreterBase.CALL_DEF) and isinstance(result, Value):
                 return result
-            if (i[0] == InterpreterBase.CALL_DEF) and isinstance(result, Value):
-                if result.typeof() == Type.ERROR:
-                    return result
+
         return result
 
     def __execute_throw_statement(self, statement):
+        err_msg = None
         if isinstance(statement[1], list):
             err_msg = self.__evaluate_expression(statement[1])
             if err_msg is not None and err_msg.typeof() == Type.ERROR:
                 return err_msg
         else:
             if statement[1] == InterpreterBase.EXCEPTION_VARIABLE_DEF:
-                if self.exception is None:
+                if self.interpreter.exception is None:
                     self.interpreter.error(ErrorType.NAME_ERROR, 'Undefined exception')
                 else:
-                    err_msg = self.exception
+                    err_msg = self.interpreter.exception
             elif self.__find_local_variables(statement[1]) is not None:
                 index = self.__find_local_variables(statement[1])
                 err_msg = self.local_variables[index][statement[1]]
-            elif statement[1] in self.method_variables:
-                err_msg = self.method_variables[statement[1]]
+            elif statement[1] in self.method_variables[-1]:
+                err_msg = self.method_variables[-1][statement[1]]
             elif statement[1] in self.obj_variables:
                 err_msg = self.obj_variables[statement[1]]
             else:
                 err_msg = Value(statement[1])
-        if err_msg.typeof() != Type.STRING:
+        if err_msg is None:
+            self.interpreter.error(ErrorType.TYPE_ERROR, 'Not a string in throw')
+        if err_msg is not None and err_msg.typeof() == Type.UNDEFINED:
+            self.interpreter.error(ErrorType.NAME_ERROR, 'Undefined variable')
+        if err_msg is not None and err_msg.typeof() != Type.STRING:
             self.interpreter.error(ErrorType.TYPE_ERROR, 'Not a string in throw')
         return Value(err_msg, Type.ERROR)
     def __evaluate_expression(self, statement):
@@ -805,10 +803,10 @@ class ObjectDefinition:
                     stack.append(Value(self, Type.POINTER))
                     stack[-1].class_name = self.class_name
                 elif i == 'exception':
-                    if self.exception is None:
+                    if self.interpreter.exception is None:
                         self.interpreter.error(ErrorType.NAME_ERROR, 'No exception')
                     else:
-                        stack.append(self.exception)
+                        stack.append(self.interpreter.exception)
                 elif i in self.interpreter.all_classes:
                     stack.append(i)
                 elif i.split('@')[0] in self.interpreter.all_template_classes:
@@ -1093,24 +1091,29 @@ def main():
 )
 """.split('\n')
     test_4 = """
-(tclass node (field_type)
-  (field node@field_type next null)
-  (field field_type value)
-  (method void set_val ((field_type v)) (set value v))
-  (method field_type get_val () (return value))
-  (method void set_next((node@field_type n)) (set next n))
-  (method node@field_type get_next() (return next))
+(class main
+(field bool x)
+ (method void foo () 
+   (begin
+    (throw "aa")
+   )
+ )
+ (method int bar () 
+   (begin
+    (try
+     (let ((int a 5))
+       (call me foo)
+     )
+     (print exception)
+    ) 
+   )
+ )
+
+ (method void main ()
+    (call me bar)
+ )
 )
 
-(class main
-  (method void main () 
-    (let ((node@int x null))
-      (set x (new node@int))
-      (call x set_val 5)
-      (print (call x get_val))
-    )
-  )
-)
     """.split('\n')
     interpreter = Interpreter()
     interpreter.run(test_4)
