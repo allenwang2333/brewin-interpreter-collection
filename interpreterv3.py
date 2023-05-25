@@ -269,7 +269,10 @@ class ObjectDefinition:
                         return result
                     out_str += self.__format_string(result)
                 else:
-                    out_str += self.__format_string(self.__evaluate_expression(out_stmt[i]))
+                    result = self.__evaluate_expression(out_stmt[i])
+                    if result is not None and result.typeof() == Type.ERROR:
+                        return result
+                    out_str += self.__format_string(result)
             elif self.__find_local_variables(out_stmt[i]) is not None:
                 index = self.__find_local_variables(out_stmt[i])
                 out_str += self.__format_string(self.local_variables[index][out_stmt[i]])
@@ -555,6 +558,9 @@ class ObjectDefinition:
     def __execute_while_statement(self, statement):
         result = None
         if isinstance(statement[1], list):
+            result = self.__evaluate_expression(statement[1])
+            if result is not None and result.typeof() == Type.ERROR:
+                return result
             while (self.__evaluate_expression(statement[1]).val()):
                 result = self.__run_statement(statement[2])
                 if isinstance(result, Value):
@@ -595,6 +601,8 @@ class ObjectDefinition:
         # print(statement)
         if isinstance(statement[1], list):
             eval_res = self.__evaluate_expression(statement[1])
+            if eval_res is not None and eval_res.typeof() == Type.ERROR:
+                return eval_res
             if eval_res.typeof() != Type.BOOL:
                 self.interpreter.error(ErrorType.TYPE_ERROR, "not boolean in if statement")
             if eval_res.val():
@@ -649,6 +657,8 @@ class ObjectDefinition:
                 return result
             else:
                 result = self.__evaluate_expression(statement[1])
+                if result is not None and result.typeof() == Type.ERROR:
+                    return result
                 if result is None:
                     return Value(None, Type.RETURN)
                 return result
@@ -754,8 +764,15 @@ class ObjectDefinition:
     def __execute_throw_statement(self, statement):
         if isinstance(statement[1], list):
             err_msg = self.__evaluate_expression(statement[1])
+            if err_msg is not None and err_msg.typeof() == Type.ERROR:
+                return err_msg
         else:
-            if self.__find_local_variables(statement[1]) is not None:
+            if statement[1] == InterpreterBase.EXCEPTION_VARIABLE_DEF:
+                if self.exception is None:
+                    self.interpreter.error(ErrorType.NAME_ERROR, 'Undefined exception')
+                else:
+                    err_msg = self.exception
+            elif self.__find_local_variables(statement[1]) is not None:
                 index = self.__find_local_variables(statement[1])
                 err_msg = self.local_variables[index][statement[1]]
             elif statement[1] in self.method_variables:
@@ -1075,22 +1092,29 @@ def main():
 )
 """.split('\n')
     test_4 = """
-    (class Person 
-        (field int x 10)
-    )
-    (class main
-        (method void main ()
-            (begin 
-                (call me foo null)
-            )
-        )
-        (method void foo ((Person x))
-        (print "aaa")
-        )
-    )
+(class main
+ (field int x 0)
+ (method void main ()
+  (while (< x 2)
+    (begin 
+     (print x)
+     (set x (+ x 1))
+   )
+  )
+  (while false 
+   (print x)
+  )
+  (while (< x 0)
+   (print x)
+  )
+ )
+)
+
+
+
     """.split('\n')
     interpreter = Interpreter()
-    interpreter.run(test_3)
+    interpreter.run(test_4)
 
 
 if __name__ == '__main__':
